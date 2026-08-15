@@ -57,10 +57,10 @@ pip install -r requeriments.txt
 
 ```bash
 # Windows
-uvicorn scraper:app --reload
+uvicorn main:app --reload
 
 # Linux/Mac
-python -m uvicorn scraper:app --reload
+python -m uvicorn main:app --reload
 ```
 
 O servidor estará disponível em: **http://localhost:8000**
@@ -200,7 +200,7 @@ fetch(url, {
 ```
 scraper.link/
 │
-├── scraper.py              # Código principal do scraper
+├── main.py                # Código principal do scraper
 ├── requeriments.txt        # Dependências do projeto
 ├── README.md              # Este arquivo
 └── .git/                  # Repositório git
@@ -295,7 +295,7 @@ O scraper registra avisos e erros em tempo real. Para ver os logs:
 
 ```bash
 pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 scraper:app
+gunicorn -w 4 -b 0.0.0.0:8000 main:app
 ```
 
 ### Usando Docker
@@ -310,9 +310,9 @@ WORKDIR /app
 COPY requeriments.txt .
 RUN pip install -r requeriments.txt
 
-COPY scraper.py .
+COPY main.py .
 
-CMD ["uvicorn", "scraper:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 Construa e execute:
