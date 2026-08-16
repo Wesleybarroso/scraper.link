@@ -17,6 +17,7 @@ Funcionalidades principais:
 # Importações de bibliotecas padrão para processamento de dados e logging
 import re
 import logging
+import time
 from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
 
@@ -106,14 +107,21 @@ def parece_botao_whatsapp(href: str, texto_do_link: str) -> bool:
 
 def seguir_redirecionamentos(url: str) -> Optional[str]:
     """Segue redirects HTTP (302/301) server-side com um client rápido,
-    sem abrir browser. Funciona para a maioria dos encurtadores."""
-    try:
-        with httpx.Client(headers=HEADERS_NAVEGADOR, follow_redirects=True, timeout=10) as client:
-            resp = client.get(url)
-            return str(resp.url)
-    except Exception as e:
-        logger.warning(f"Falha ao seguir redirect HTTP de {url}: {e}")
-        return None
+    sem abrir browser. Funciona para a maioria dos encurtadores.
+    Tenta múltiplas vezes com retry automático."""
+    max_retries = 3
+    for tentativa in range(max_retries):
+        try:
+            with httpx.Client(headers=HEADERS_NAVEGADOR, follow_redirects=True, timeout=15) as client:
+                resp = client.get(url)
+                return str(resp.url)
+        except Exception as e:
+            if tentativa < max_retries - 1:
+                time.sleep(1 * (tentativa + 1))  # Backoff exponencial: 1s, 2s, 3s
+                logger.info(f"Retry {tentativa + 1}/{max_retries} para {url}")
+            else:
+                logger.warning(f"Falha final ao seguir redirect HTTP de {url}: {e}")
+    return None
 
 
 def seguir_redirecionamento_via_browser(url: str) -> Optional[str]:
@@ -149,11 +157,10 @@ def resolver_link_ate_whatsapp(url_inicial: str) -> Optional[str]:
 # (redes sociais, navegação do próprio site, etc. — perda de tempo e requests)
 DOMINIOS_IGNORAR_NO_FALLBACK = (
     "instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com",
-    "youtube.com", "linkedin.com", "linktr.ee", "beacons.ai", "bio.link",
-    "spotify.com", "apple.com",
+    "youtube.com", "linkedin.com", "spotify.com", "apple.com",
 )
 
-MAX_LINKS_FALLBACK = 8  # limite de segurança pra não resolver a página inteira
+MAX_LINKS_FALLBACK = 15  # Aumentado para verificar mais links
 
 
 def extrair_numero_de_tel(href: str) -> Optional[str]:
@@ -216,33 +223,81 @@ def buscar_whatsapp_em_link_bio(url: str) -> Optional[str]:
 
 
 def buscar_telefone_instagram(link: str) -> Optional[str]:
-    """Busca telefone/WhatsApp no perfil do Instagram:
-    1) Verifica a bio (metadados da descrição)
-    2) Procura link-in-bio (Linktree, Beacons, Bio.link)
-    3) Procura em todo o texto visível da página"""
+    """Busca telefone/WhatsApp no perfil do Instagram com múltiplas estratégias:
+    1) Verifica metadados (og:description e description)
+    2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
+    3) Procura link-in-bio (Linktree, Beacons, Bio.link, etc.)
+    4) Procura por palavras-chave de contato
+    5) Resolve links de redirecionamento
+    6) Busca em todo o texto visível da página"""
     try:
         username = link.rstrip(
             "/").split("/")[-1].lstrip("@") if "instagram.com" in link else link.lstrip("@")
         url = f"https://www.instagram.com/{username}/"
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        
+        # Fetch com timeout maior para Instagram
+        page = StealthyFetcher.fetch(url, headless=True, network_idle=True, timeout=30)
 
-        # Tenta extrair da metadescription (usa-se em SEO/preview)
+        # 1) Tenta extrair de metadados (og:description + description)
         descricao = page.css(
-            "meta[name='description']::attr(content)").get() or ""
+            "meta[property='og:description']::attr(content)").get() or ""
+        descricao += " " + (page.css(
+            "meta[name='description']::attr(content)").get() or "")
+        
         telefone = extrair_telefone_de_texto(descricao)
         if telefone:
             return telefone
 
-        # Procura link-in-bio (Linktree, Beacons, Bio.link, etc.) na bio do Instagram
-        bio_link = page.css(
-            "a[href*='linktr.ee'], a[href*='beacons.ai'], a[href*='bio.link']::attr(href)").get()
-        if bio_link:
-            return buscar_whatsapp_em_link_bio(bio_link)
+        # 2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
+        links_whatsapp = page.css("a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
+        for href in links_whatsapp:
+            numero = extrair_numero_de_url_whatsapp(href)
+            if numero:
+                return numero
 
+        # 3) Procura link-in-bio (Linktree, Beacons, Bio.link, etc.)
+        bio_links = page.css(
+            "a[href*='linktr.ee']::attr(href), "
+            "a[href*='beacons.ai']::attr(href), "
+            "a[href*='bio.link']::attr(href), "
+            "a[href*='linkin.bio']::attr(href)").getall() or []
+        
+        for bio_link in bio_links:
+            numero = buscar_whatsapp_em_link_bio(bio_link)
+            if numero:
+                return numero
+
+        # 4) Procura por links com palavras-chave de contato/WhatsApp
+        todos_os_links = page.css("a::attr(href)").getall() or []
+        textos = page.css("a::text").getall() or []
+        textos += [""] * (len(todos_os_links) - len(textos))
+
+        candidatos = [
+            href for href, texto in zip(todos_os_links, textos)
+            if parece_botao_whatsapp(href, texto) or "contato" in texto.lower() or "message" in texto.lower()
+        ]
+
+        for href in candidatos:
+            if href.startswith("http"):
+                numero = resolver_link_ate_whatsapp(href)
+                if numero:
+                    return numero
+            elif href.startswith("tel:"):
+                numero = extrair_numero_de_tel(href)
+                if numero:
+                    return numero
+
+        # 5) Fallback: busca em todo o texto da página com filtro
         texto_completo = page.get_all_text() if hasattr(
             page, "get_all_text") else str(page)
-        # Se nada foi encontrado, tenta extrair do texto completo da página
-        return extrair_telefone_de_texto(texto_completo)
+        
+        # Procura por padrões de WhatsApp no texto
+        if any(kw in texto_completo.lower() for kw in ["whatsapp", "zap", "wa.me", "msg"]):
+            telefone = extrair_telefone_de_texto(texto_completo)
+            if telefone:
+                return telefone
+
+        return None
     except Exception as e:
         logger.warning(f"Falha ao buscar telefone no Instagram ({link}): {e}")
         return None
