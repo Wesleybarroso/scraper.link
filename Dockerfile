@@ -11,6 +11,7 @@ COPY requeriments.txt .
 RUN pip install --no-cache-dir -r requeriments.txt
 
 RUN scrapling install
+RUN patchright install chromium
 
 COPY main.py .
 
