@@ -1,4 +1,3 @@
-
 """
 SCRAPER DE CONTATOS - Extrator de Telefones/WhatsApp
 =====================================================
@@ -9,6 +8,8 @@ Funcionalidades principais:
 - Extrai telefones usando padrão regex para números brasileiros
 - Resolve URLs de encurtadores (bit.ly, linktr.ee, etc.) para encontrar WhatsApp
 - Funciona com redirecionamentos HTTP e JavaScript
+- Fallback via API privada do Instagram (aiograpi) para perfis comerciais
+- Fallback final via IA (Groq/OpenAI/OpenRouter/Google) quando nada mais funciona
 - Acessa a API via FastAPI com dois endpoints:
   * POST /extrair-telefone: extrai telefone/WhatsApp de uma fonte
   * GET /health: verifica se a API está online
@@ -19,6 +20,7 @@ import re
 import logging
 import time
 import os
+import asyncio
 from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
 
@@ -28,6 +30,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from scrapling.fetchers import StealthyFetcher
 from dotenv import load_dotenv
+from aiograpi import Client as InstagramClient
 
 # Carregar variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
@@ -104,6 +107,20 @@ if USE_IA_FALLBACK:
 else:
     logger.info("🔇 Fallback com IA desativado")
 
+# ========== CONFIGURAÇÃO DO AIOGRAPI (Fallback via API privada do Instagram) ==========
+# Usa a mesma API que o app oficial do Instagram usa, através de uma conta logada.
+# Só retorna telefone se o perfil-alvo for conta comercial com contato público configurado.
+USE_AIOGRAPI_FALLBACK = os.getenv("USE_AIOGRAPI_FALLBACK", "true").lower() == "true"
+IG_USERNAME = os.getenv("IG_USERNAME", "")
+IG_PASSWORD = os.getenv("IG_PASSWORD", "")
+SESSAO_INSTAGRAM_PATH = "/app/ig_session.json"
+
+if USE_AIOGRAPI_FALLBACK and IG_USERNAME and IG_PASSWORD:
+    logger.info("📷 Fallback aiograpi configurado")
+else:
+    USE_AIOGRAPI_FALLBACK = False
+    logger.info("🔇 Fallback aiograpi desativado (sem credenciais ou desligado)")
+
 # Modelos de dados usando Pydantic para validação de requisições e respostas
 
 
@@ -118,6 +135,14 @@ class ScrapeResponse(BaseModel):
     """Modelo para retornar o telefone encontrado e sua fonte"""
     telefone_encontrado: Optional[str] = None
     fonte: Optional[str] = None
+
+
+def somenteNumeros(valor) -> str:
+    """Remove tudo que não for dígito de um valor (mesma lógica usada
+    no node 'Code preparar leads' do n8n, mantida consistente aqui)."""
+    if valor is None:
+        return ""
+    return "".join(c for c in str(valor) if c.isdigit())
 
 
 def extrair_telefone_de_texto(texto: str) -> Optional[str]:
@@ -340,6 +365,43 @@ def _extrair_com_google(prompt: str) -> Optional[str]:
     return None
 
 
+async def _buscar_telefone_via_aiograpi_async(username: str) -> Optional[str]:
+    """Loga (ou reusa sessão salva) na API privada do Instagram e busca
+    o telefone público configurado no perfil comercial informado."""
+    cliente = InstagramClient()
+
+    if os.path.exists(SESSAO_INSTAGRAM_PATH):
+        cliente.load_settings(SESSAO_INSTAGRAM_PATH)
+
+    await cliente.login(IG_USERNAME, IG_PASSWORD)
+    cliente.dump_settings(SESSAO_INSTAGRAM_PATH)
+
+    info = await cliente.user_info_by_username(username)
+
+    telefone = (
+        getattr(info, "public_phone_number", None)
+        or getattr(info, "contact_phone_number", None)
+    )
+    return somenteNumeros(str(telefone)) if telefone else None
+
+
+def buscar_telefone_via_aiograpi(username: str) -> Optional[str]:
+    """Fallback via API privada do Instagram (aiograpi) — só roda
+    se USE_AIOGRAPI_FALLBACK estiver ligado e tiver credenciais.
+    Mais confiável que a IA porque vem de um campo estruturado real,
+    não de texto interpretado."""
+    if not USE_AIOGRAPI_FALLBACK:
+        return None
+    try:
+        numero = asyncio.run(_buscar_telefone_via_aiograpi_async(username))
+        if numero:
+            logger.info(f"✅ aiograpi extraiu telefone: {numero}")
+        return numero
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao usar aiograpi para @{username}: {e}")
+        return None
+
+
 def seguir_redirecionamentos(url: str) -> Optional[str]:
     """Segue redirects HTTP (302/301) server-side com um client rápido,
     sem abrir browser. Funciona para a maioria dos encurtadores.
@@ -465,8 +527,9 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
     2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
     3) Procura link-in-bio (Linktree, Beacons, Bio.link, etc.)
     4) Procura por palavras-chave de contato
-    5) Resolve links de redirecionamento
-    6) Busca em todo o texto visível da página"""
+    5) Busca em todo o texto visível da página
+    6) Fallback via API privada do Instagram (aiograpi)
+    7) Último recurso: usa IA para extrair"""
     try:
         username = link.rstrip(
             "/").split("/")[-1].lstrip("@") if "instagram.com" in link else link.lstrip("@")
@@ -536,7 +599,13 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
             if telefone:
                 return telefone
 
-        # 6) Último recurso: usar IA para extrair se disponível
+        # 6) Fallback via API privada do Instagram (aiograpi) — mais confiável
+        #    que a IA, porque vem direto do campo estruturado do Instagram
+        numero_aiograpi = buscar_telefone_via_aiograpi(username)
+        if numero_aiograpi:
+            return numero_aiograpi
+
+        # 7) Último recurso: usar IA para extrair se disponível
         numero_ia = extrair_com_ia(texto_completo, "Instagram")
         if numero_ia:
             return numero_ia
