@@ -18,6 +18,7 @@ Funcionalidades principais:
 import re
 import logging
 import time
+import os
 from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
 
@@ -26,6 +27,10 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 from scrapling.fetchers import StealthyFetcher
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env (se existir)
+load_dotenv()
 
 # Configuração de logs para rastrear execução e erros
 logging.basicConfig(level=logging.INFO)
@@ -57,8 +62,28 @@ HEADERS_NAVEGADOR = {
     )
 }
 
+# ========== CONFIGURAÇÃO DE APIS DE IA (Fallback) ==========
+# Carrega chaves de API de variáveis de ambiente
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+
+# Flag para ativar/desativar fallback com IA
+USE_IA_FALLBACK = os.getenv("USE_IA_FALLBACK", "true").lower() == "true"
+
+# Inicializar cliente Groq se API key está disponível
+GROQ_CLIENT = None
+if GROQ_API_KEY:
+    try:
+        from groq import Groq
+        GROQ_CLIENT = Groq(api_key=GROQ_API_KEY)
+        logger.info("✅ Groq API configurada com sucesso")
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao configurar Groq: {e}")
 
 # Modelos de dados usando Pydantic para validação de requisições e respostas
+
+
 class ScrapeRequest(BaseModel):
     """Modelo para receber requisição de scraping com URLs de redes sociais"""
     instagram: Optional[str] = None
@@ -105,6 +130,66 @@ def parece_botao_whatsapp(href: str, texto_do_link: str) -> bool:
     return any(kw in alvo for kw in WHATSAPP_HINT_KEYWORDS)
 
 
+def extrair_com_ia_groq(conteudo: str, origem: str = "página") -> Optional[str]:
+    """Fallback: usa Groq (IA) para extrair WhatsApp quando método tradicional falha.
+
+    Args:
+        conteudo: Texto/HTML da página a analisar
+        origem: Origem (Instagram, Facebook, etc.)
+
+    Returns:
+        Número de WhatsApp encontrado ou None
+    """
+    if not GROQ_CLIENT or not USE_IA_FALLBACK:
+        return None
+
+    if not conteudo or len(conteudo) < 10:
+        return None
+
+    try:
+        # Limitar tamanho do conteúdo para não exceder limite da API
+        conteudo_limitado = conteudo[:2000]
+
+        prompt = f"""Você é um extrator de dados especializado em extrair números de WhatsApp.
+
+Analise o seguinte conteúdo de um perfil {origem} e extraia APENAS o número de WhatsApp no formato brasileiro.
+
+Conteúdo:
+{conteudo_limitado}
+
+Instruções:
+1. Procure por números de WhatsApp em qualquer formato
+2. Retorne APENAS o número (ex: 5511999999999 ou +5511999999999)
+3. Se não encontrar WhatsApp, retorne: NENHUM
+4. Não inclua explicações, retorne apenas o número ou NENHUM"""
+
+        response = GROQ_CLIENT.chat.completions.create(
+            model="mixtral-8x7b-32768",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,  # Baixa temperatura para resposta determinística
+            max_tokens=20,
+        )
+
+        resultado = response.choices[0].message.content.strip()
+
+        # Validar resposta
+        if resultado == "NENHUM" or not resultado:
+            return None
+
+        # Extrair número usando regex da resposta
+        match = PHONE_REGEX.search(resultado)
+        if match:
+            numero = match.group(0)
+            logger.info(f"✅ IA Groq extraiu WhatsApp: {numero}")
+            return numero
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao usar Groq para extrair WhatsApp: {e}")
+        return None
+
+
 def seguir_redirecionamentos(url: str) -> Optional[str]:
     """Segue redirects HTTP (302/301) server-side com um client rápido,
     sem abrir browser. Funciona para a maioria dos encurtadores.
@@ -117,10 +202,12 @@ def seguir_redirecionamentos(url: str) -> Optional[str]:
                 return str(resp.url)
         except Exception as e:
             if tentativa < max_retries - 1:
-                time.sleep(1 * (tentativa + 1))  # Backoff exponencial: 1s, 2s, 3s
+                # Backoff exponencial: 1s, 2s, 3s
+                time.sleep(1 * (tentativa + 1))
                 logger.info(f"Retry {tentativa + 1}/{max_retries} para {url}")
             else:
-                logger.warning(f"Falha final ao seguir redirect HTTP de {url}: {e}")
+                logger.warning(
+                    f"Falha final ao seguir redirect HTTP de {url}: {e}")
     return None
 
 
@@ -234,22 +321,24 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
         username = link.rstrip(
             "/").split("/")[-1].lstrip("@") if "instagram.com" in link else link.lstrip("@")
         url = f"https://www.instagram.com/{username}/"
-        
+
         # Fetch com timeout maior para Instagram
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True, timeout=30)
+        page = StealthyFetcher.fetch(
+            url, headless=True, network_idle=True, timeout=30)
 
         # 1) Tenta extrair de metadados (og:description + description)
         descricao = page.css(
             "meta[property='og:description']::attr(content)").get() or ""
         descricao += " " + (page.css(
             "meta[name='description']::attr(content)").get() or "")
-        
+
         telefone = extrair_telefone_de_texto(descricao)
         if telefone:
             return telefone
 
         # 2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
-        links_whatsapp = page.css("a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
+        links_whatsapp = page.css(
+            "a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
         for href in links_whatsapp:
             numero = extrair_numero_de_url_whatsapp(href)
             if numero:
@@ -261,7 +350,7 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
             "a[href*='beacons.ai']::attr(href), "
             "a[href*='bio.link']::attr(href), "
             "a[href*='linkin.bio']::attr(href)").getall() or []
-        
+
         for bio_link in bio_links:
             numero = buscar_whatsapp_em_link_bio(bio_link)
             if numero:
@@ -290,12 +379,17 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
         # 5) Fallback: busca em todo o texto da página com filtro
         texto_completo = page.get_all_text() if hasattr(
             page, "get_all_text") else str(page)
-        
+
         # Procura por padrões de WhatsApp no texto
         if any(kw in texto_completo.lower() for kw in ["whatsapp", "zap", "wa.me", "msg"]):
             telefone = extrair_telefone_de_texto(texto_completo)
             if telefone:
                 return telefone
+
+        # 6) Último recurso: usar IA (Groq) para extrair se disponível
+        numero_ia = extrair_com_ia_groq(texto_completo, "Instagram")
+        if numero_ia:
+            return numero_ia
 
         return None
     except Exception as e:
@@ -306,7 +400,8 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
 def buscar_telefone_facebook(link: str) -> Optional[str]:
     """Busca telefone/WhatsApp no perfil do Facebook:
     1) Verifica a og:description (metadados para compartilhamento)
-    2) Procura em todo o texto visível da página"""
+    2) Procura em todo o texto visível da página
+    3) Usa IA como fallback se disponível"""
     try:
         page = StealthyFetcher.fetch(link, headless=True, network_idle=True)
         # Tenta extrair da metadescription (Open Graph para compartilhamento)
@@ -315,9 +410,21 @@ def buscar_telefone_facebook(link: str) -> Optional[str]:
         telefone = extrair_telefone_de_texto(descricao)
         if telefone:
             return telefone
+
         texto_completo = page.get_all_text() if hasattr(
             page, "get_all_text") else str(page)
-        return extrair_telefone_de_texto(texto_completo)
+
+        # Tenta com regex primeiro
+        numero = extrair_telefone_de_texto(texto_completo)
+        if numero:
+            return numero
+
+        # Fallback: usar IA se disponível
+        numero_ia = extrair_com_ia_groq(texto_completo, "Facebook")
+        if numero_ia:
+            return numero_ia
+
+        return None
     except Exception as e:
         logger.warning(f"Falha ao buscar telefone no Facebook ({link}): {e}")
         return None

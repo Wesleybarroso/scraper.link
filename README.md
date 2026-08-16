@@ -229,6 +229,58 @@ O regex suporta números brasileiros nos seguintes formatos:
 - `+5511999999999`
 - E variações similares
 
+## 🤖 Fallback com IA (Groq) - Experimental
+
+Para aumentar a precisão quando o método tradicional falha, o scraper suporta **fallback com IA** usando a API Groq gratuitamente!
+
+### Como Ativar:
+
+#### 1. **Obtenha uma chave Groq grátis:**
+- Acesse: https://console.groq.com/
+- Faça login com Google/GitHub
+- Copie sua chave API
+
+#### 2. **Configure a variável de ambiente:**
+
+**No EasyPanel:**
+1. Vá para "Variables"
+2. Adicione nova variável:
+   - **Nome**: `GROQ_API_KEY`
+   - **Valor**: `sua-chave-groq-aqui`
+3. Redeploy a aplicação
+
+**Localmente (arquivo .env):**
+```bash
+# Copie o arquivo de exemplo
+cp .env.example .env
+
+# Edite o arquivo e adicione sua chave
+GROQ_API_KEY=sua-chave-groq-aqui
+USE_IA_FALLBACK=true
+```
+
+#### 3. **Como funciona:**
+1. Tenta extrair usando método tradicional (regex, links, etc.)
+2. Se falhar, usa **Groq (IA)** para analisar o conteúdo
+3. IA extrai o WhatsApp com compreensão de contexto
+
+### Vantagens do Fallback IA:
+- ✅ **Muito mais preciso** - entende contexto
+- ✅ **Extrai em qualquer formato** - não só padrões regex
+- ✅ **Gratuito** - Groq oferece limite generoso
+- ✅ **Rápido** - Groq é muito rápido
+- ✅ **Opcional** - funciona sem IA também
+
+### Custo:
+- ✅ **Gratuito!** - Groq oferece limite grátis generoso
+- Sem cartão de crédito necessário
+- Limite: Centenas de requisições/dia no plano free
+
+### Desativar (se desejar):
+```
+USE_IA_FALLBACK=false
+```
+
 ## ⚠️ Notas Importantes
 
 ### Limitações
