@@ -11,6 +11,8 @@ Um web scraper automatizado que extrai números de telefone e links de WhatsApp 
 - ✅ API REST com FastAPI
 - ✅ Detecção inteligente de botões WhatsApp
 - ✅ User-Agent real para evitar bloqueios
+- ✅ Fallback via API privada do Instagram (aiograpi) para contas comerciais
+- ✅ Fallback via IA (múltiplos provedores) como último recurso
 
 ## 📋 Requisitos
 
@@ -50,6 +52,9 @@ pip install -r requeriments.txt
 - `pydantic==2.9.2` - Validação de dados
 - `scrapling[fetchers]` - Scraping com suporte a JavaScript
 - `httpx==0.27.2` - Cliente HTTP
+- `python-dotenv` - Carregamento de variáveis de ambiente locais
+- `groq` / `openai` / `google-generativeai` - Provedores de IA (fallback)
+- `aiograpi` - API privada do Instagram (fallback)
 
 ## 💻 Como Usar
 
@@ -210,13 +215,16 @@ scraper.link/
 
 ### Estratégia de Extração
 
-O scraper utiliza uma abordagem de múltiplas camadas para encontrar telefones:
+O scraper utiliza uma abordagem de múltiplas camadas para encontrar telefones,
+tentando cada uma nessa ordem até achar um número:
 
 1. **Extração de padrão regex**: Busca números de telefone usando expressão regular
 2. **Links diretos**: Identifica links wa.me e whatsapp.com
 3. **Palavras-chave**: Detecta botões WhatsApp por palavras-chave ("whatsapp", "zap", "fale conosco", etc.)
 4. **Resolução de encurtadores**: Segue redirecionamentos HTTP e JavaScript
 5. **Fallback genérico**: Tenta resolver links desconhecidos
+6. **Fallback via aiograpi**: Consulta a API privada do Instagram (só Instagram, ver seção própria abaixo)
+7. **Fallback via IA**: Analisa o texto raspado com um modelo de linguagem (último recurso)
 
 ### Formatos de Telefone Suportados
 
@@ -229,9 +237,57 @@ O regex suporta números brasileiros nos seguintes formatos:
 - `+5511999999999`
 - E variações similares
 
+## 📷 Fallback via aiograpi (API privada do Instagram)
+
+Quando nenhum dos métodos tradicionais encontra o telefone na bio, no
+link-in-bio ou no texto da página, o scraper pode consultar a **API privada
+do Instagram** (a mesma que o app oficial usa) através da biblioteca
+[`aiograpi`](https://github.com/subzeroid/aiograpi). Esse método é mais
+confiável que a IA porque lê um campo estruturado real do Instagram
+(`public_phone_number`), em vez de tentar interpretar texto solto.
+
+### Como Funciona
+
+1. Faz login numa conta de Instagram configurada via variável de ambiente
+2. Salva a sessão localmente (`/app/ig_session.json`) para reaproveitar entre
+   requisições, evitando logins repetidos
+3. Consulta o perfil-alvo (`user_info_by_username`) e lê o campo de telefone
+   público, se existir
+
+### Limitação importante
+
+Esse método só retorna algo se o perfil-alvo for uma **conta comercial** com
+telefone de contato público configurado — perfis pessoais não têm esse campo
+disponível, nem pela API oficial do Instagram.
+
+### Como Configurar
+
+No EasyPanel (ou no seu `.env` local):
+
+```
+USE_AIOGRAPI_FALLBACK=true
+IG_USERNAME=sua-conta-secundaria
+IG_PASSWORD=sua-senha
+```
+
+### ⚠️ Aviso de Segurança
+
+> **Use sempre uma conta secundária, nunca a conta principal do seu negócio.**
+> Automatizar login numa conta real tem risco de banimento ou de pedido de
+> verificação (challenge) pelo próprio Instagram. Se a conta usada aqui cair,
+> você perde o acesso a ela até resolver — trate como uma conta descartável
+> dedicada só a isso.
+
+### Desativar (se desejar)
+
+```
+USE_AIOGRAPI_FALLBACK=false
+```
+
 ## 🤖 Fallback com IA - Múltiplos Provedores
 
-Para aumentar a precisão quando o método tradicional falha, o scraper suporta **múltiplos provedores de IA**!
+Para aumentar a precisão quando o método tradicional (e o aiograpi) falham, o
+scraper suporta **múltiplos provedores de IA** como último recurso!
 
 ### Provedores Suportados:
 
@@ -318,12 +374,15 @@ USE_IA_FALLBACK=true
 
 1. **Tenta método tradicional** (rápido, sem custo)
    - Regex, links diretos, palavras-chave, etc.
-   
-2. **Se falhar, usa IA** (mais preciso)
+
+2. **Se falhar, tenta aiograpi** (Instagram, contas comerciais)
+   - Consulta direta na API privada do Instagram
+
+3. **Se ainda falhar, usa IA** (mais caro, menos confiável)
    - Analisa o conteúdo com compreensão de contexto
    - Extrai o WhatsApp em qualquer formato
-   
-3. **Se ainda falhar, retorna null**
+
+4. **Se ainda falhar, retorna null**
    - Nenhum resultado encontrado
 
 ### Vantagens do Fallback IA:
@@ -344,11 +403,12 @@ USE_IA_FALLBACK=false
 ### Limitações
 
 - ⏱️ **Timeout**: Requisições têm timeout de 10 segundos
-- 🔗 **Links**: Máximo de 8 links são processados por página (fallback)
+- 🔗 **Links**: Até 15 links são processados por página (fallback genérico)
 - 🌐 **Domínios ignorados**: Alguns domínios são ignorados para evitar requisições desnecessárias:
   - Redes sociais: instagram.com, facebook.com, tiktok.com, twitter.com, youtube.com, etc.
   - Outros: spotify.com, apple.com
 - 🤖 **User-Agent**: Usa User-Agent de navegador real para evitar bloqueios
+- 📷 **aiograpi**: só retorna telefone de contas comerciais com contato público configurado
 
 ### Rate Limiting
 
@@ -379,7 +439,7 @@ pip install scrapling[fetchers]
 
 **Solução:** Certifique-se que o servidor está rodando:
 ```bash
-uvicorn scraper:app --reload
+uvicorn main:app --reload
 ```
 
 ### Telefone não está sendo encontrado
@@ -388,6 +448,13 @@ uvicorn scraper:app --reload
 - O site está bloqueando bots
 - O telefone está em um formato não reconhecido
 - O conteúdo é carregado dinamicamente (JavaScript)
+- É um perfil pessoal (não comercial), então o aiograpi também não vai achar nada
+
+### Erro de login no aiograpi (challenge_required)
+
+**Solução:** o Instagram pediu verificação na conta usada. Acesse o app
+oficial com essa conta, resolva a verificação manualmente, e tente de novo.
+Se acontecer com frequência, troque para outra conta secundária.
 
 ## 📝 Logging
 
@@ -396,7 +463,7 @@ O scraper registra avisos e erros em tempo real. Para ver os logs:
 ```bash
 # Aumentar verbosidade
 # Modificar logging.basicConfig(level=logging.INFO) 
-# para logging.basicConfig(level=logging.DEBUG) em scraper.py
+# para logging.basicConfig(level=logging.DEBUG) em main.py
 ```
 
 ## 🚢 Deploy em Produção
@@ -411,14 +478,16 @@ O scraper registra avisos e erros em tempo real. Para ver os logs:
 2. **Clique em "Add Service" → "Application"**
 3. **Preencha os dados:**
    - **Nome**: `scraper-leads`
-   - **Repository URL**: `https://github.com/Wesleybarroso/scraper.link.git`
+   - **Repository**: `Wesleybarroso/scraper.link` (formato `usuario/repositorio`, sem `https://` nem `.git`)
    - **Branch**: `main`
+   - **Método de Build**: `Dockerfile`
    - **Port**: `8000`
    - **Container Port**: `8000`
 
-4. **Clique em "Deploy"**
-5. **Aguarde a conclusão** (cerca de 2-3 minutos)
-6. **Acesse via**: `https://seu-dominio.com` ou conforme configurado
+4. **Configure as variáveis de ambiente** que quiser usar (IA e/ou aiograpi, ver seções acima)
+5. **Clique em "Deploy"**
+6. **Aguarde a conclusão** (a primeira vez demora mais, baixando o Chromium — pode levar 5-10 minutos)
+7. **Acesse via**: `https://seu-dominio.com` ou conforme configurado
 
 #### Vantagens do EasyPanel:
 - ✅ Deploy automático ao fazer push no GitHub
@@ -430,11 +499,15 @@ O scraper registra avisos e erros em tempo real. Para ver os logs:
 
 #### Variáveis de Ambiente (opcional no EasyPanel):
 
-Se precisar de configurações customizadas:
-
 ```
 LOG_LEVEL=INFO
 WORKERS=4
+USE_IA_FALLBACK=true
+IA_PROVIDER=groq
+GROQ_API_KEY=sua-chave
+USE_AIOGRAPI_FALLBACK=true
+IG_USERNAME=sua-conta-secundaria
+IG_PASSWORD=sua-senha
 ```
 
 ---
@@ -476,6 +549,7 @@ services:
     environment:
       - LOG_LEVEL=INFO
     restart: unless-stopped
+    shm_size: "1gb"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -612,6 +686,27 @@ git push heroku main
 **Para máxima performance:** Use Nginx + Uvicorn (Opção 4)
 
 ---
+
+## 🔌 Integração com n8n
+
+No node HTTP Request do seu workflow, aponte para
+`https://SEU-DOMINIO/extrair-telefone` com o body:
+
+```json
+{
+  "instagram": "{{$json.instagram}}",
+  "facebook": "{{$json.facebook}}",
+  "link_bio": "{{$json.link_bio}}"
+}
+```
+
+O campo de retorno `telefone_encontrado` já bate com o que os nodes de
+decisão seguintes ("Achou o número?") esperam.
+
+> **Se o n8n e o scraper estiverem na mesma VPS/rede Docker**, prefira chamar
+> pelo endereço interno do serviço (ex: `http://scraper:8000/extrair-telefone`)
+> em vez do domínio público — evita timeouts de "hairpin NAT" (o tráfego
+> saindo e tentando voltar pro mesmo servidor).
 
 ## 📄 Licença
 
