@@ -300,27 +300,91 @@ gunicorn -w 4 -b 0.0.0.0:8000 main:app
 
 ### Usando Docker
 
-Crie um `Dockerfile`:
+O projeto inclui um `Dockerfile` otimizado para produção com suporte a navegação com Selenium.
 
-```dockerfile
-FROM python:3.11-slim
+#### Pré-requisitos Docker
 
-WORKDIR /app
+- Docker instalado ([Download](https://www.docker.com/products/docker-desktop))
+- Docker Compose (opcional)
 
-COPY requeriments.txt .
-RUN pip install -r requeriments.txt
-
-COPY main.py .
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-Construa e execute:
+#### Construir a imagem
 
 ```bash
 docker build -t scraper-leads .
-docker run -p 8000:8000 scraper-leads
 ```
+
+#### Executar o container
+
+```bash
+# Modo interativo
+docker run -p 8000:8000 scraper-leads
+
+# Modo detached (background)
+docker run -d -p 8000:8000 --name scraper scraper-leads
+
+# Com variáveis de ambiente
+docker run -d -p 8000:8000 \
+  -e LOG_LEVEL=INFO \
+  scraper-leads
+```
+
+#### Acessar a API no Docker
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+- Health Check: http://localhost:8000/health
+
+#### Docker Compose (opcional)
+
+Crie um arquivo `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  scraper:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+```
+
+Execute com:
+
+```bash
+docker-compose up -d
+```
+
+#### Parar o container
+
+```bash
+# Pelo nome
+docker stop scraper
+
+# Ou pelo ID (obter com: docker ps)
+docker stop <container_id>
+```
+
+#### Ver logs
+
+```bash
+docker logs scraper
+
+# Logs em tempo real
+docker logs -f scraper
+```
+
+#### Dockerfile Detalhes
+
+O Dockerfile incluído:
+- Usa Python 3.12-slim (imagem leve)
+- Instala dependências do sistema para Selenium
+- Instala pacotes Python do requirements.txt
+- Instala drivers do Selenium via `scrapling install`
+- Expõe porta 8000
+- Executa o servidor uvicorn
 
 ## 📄 Licença
 
