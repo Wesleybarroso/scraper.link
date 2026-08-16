@@ -63,16 +63,24 @@ HEADERS_NAVEGADOR = {
 }
 
 # ========== CONFIGURAÇÃO DE APIS DE IA (Fallback) ==========
-# Carrega chaves de API de variáveis de ambiente
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-
-# Flag para ativar/desativar fallback com IA
+# Carrega configurações de IA de variáveis de ambiente
+IA_PROVIDER = os.getenv("IA_PROVIDER", "groq").lower()
 USE_IA_FALLBACK = os.getenv("USE_IA_FALLBACK", "true").lower() == "true"
 
-# Inicializar cliente Groq se API key está disponível
+# Chaves de API para diferentes provedores
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4-mini")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-2-70b-chat")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+
+# Inicializar clientes de IA
 GROQ_CLIENT = None
+OPENAI_CLIENT = None
+
+# Inicializar Groq
 if GROQ_API_KEY:
     try:
         from groq import Groq
@@ -80,6 +88,21 @@ if GROQ_API_KEY:
         logger.info("✅ Groq API configurada com sucesso")
     except Exception as e:
         logger.warning(f"⚠️ Falha ao configurar Groq: {e}")
+
+# Inicializar OpenAI
+if OPENAI_API_KEY:
+    try:
+        from openai import OpenAI
+        OPENAI_CLIENT = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("✅ OpenAI API configurada com sucesso")
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao configurar OpenAI: {e}")
+
+# Log do provedor IA selecionado
+if USE_IA_FALLBACK:
+    logger.info(f"🤖 Provedor de IA selecionado: {IA_PROVIDER.upper()}")
+else:
+    logger.info("🔇 Fallback com IA desativado")
 
 # Modelos de dados usando Pydantic para validação de requisições e respostas
 
@@ -130,8 +153,9 @@ def parece_botao_whatsapp(href: str, texto_do_link: str) -> bool:
     return any(kw in alvo for kw in WHATSAPP_HINT_KEYWORDS)
 
 
-def extrair_com_ia_groq(conteudo: str, origem: str = "página") -> Optional[str]:
-    """Fallback: usa Groq (IA) para extrair WhatsApp quando método tradicional falha.
+def extrair_com_ia(conteudo: str, origem: str = "página") -> Optional[str]:
+    """Fallback: usa IA para extrair WhatsApp quando método tradicional falha.
+    Suporta múltiplos provedores: Groq, OpenAI, OpenRouter, Google.
 
     Args:
         conteudo: Texto/HTML da página a analisar
@@ -140,17 +164,16 @@ def extrair_com_ia_groq(conteudo: str, origem: str = "página") -> Optional[str]
     Returns:
         Número de WhatsApp encontrado ou None
     """
-    if not GROQ_CLIENT or not USE_IA_FALLBACK:
+    if not USE_IA_FALLBACK:
         return None
 
     if not conteudo or len(conteudo) < 10:
         return None
 
-    try:
-        # Limitar tamanho do conteúdo para não exceder limite da API
-        conteudo_limitado = conteudo[:2000]
+    # Preparar conteúdo (limitar tamanho)
+    conteudo_limitado = conteudo[:2000]
 
-        prompt = f"""Você é um extrator de dados especializado em extrair números de WhatsApp.
+    prompt = f"""Você é um extrator de dados especializado em extrair números de WhatsApp.
 
 Analise o seguinte conteúdo de um perfil {origem} e extraia APENAS o número de WhatsApp no formato brasileiro.
 
@@ -163,31 +186,158 @@ Instruções:
 3. Se não encontrar WhatsApp, retorne: NENHUM
 4. Não inclua explicações, retorne apenas o número ou NENHUM"""
 
+    # Tentar com provedor selecionado
+    if IA_PROVIDER == "groq" and GROQ_CLIENT:
+        return _extrair_com_groq(prompt)
+    elif IA_PROVIDER == "openai" and OPENAI_CLIENT:
+        return _extrair_com_openai(prompt)
+    elif IA_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
+        return _extrair_com_openrouter(prompt)
+    elif IA_PROVIDER == "google" and GOOGLE_API_KEY:
+        return _extrair_com_google(prompt)
+
+    # Fallback: tentar qualquer uma disponível
+    logger.warning(
+        f"⚠️ Provedor {IA_PROVIDER} não configurado, tentando alternativas...")
+
+    if GROQ_CLIENT:
+        return _extrair_com_groq(prompt)
+    elif OPENAI_CLIENT:
+        return _extrair_com_openai(prompt)
+    elif OPENROUTER_API_KEY:
+        return _extrair_com_openrouter(prompt)
+    elif GOOGLE_API_KEY:
+        return _extrair_com_google(prompt)
+
+    return None
+
+
+def _extrair_com_groq(prompt: str) -> Optional[str]:
+    """Extrai usando Groq API."""
+    try:
         response = GROQ_CLIENT.chat.completions.create(
             model="mixtral-8x7b-32768",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,  # Baixa temperatura para resposta determinística
+            temperature=0.1,
             max_tokens=20,
         )
-
         resultado = response.choices[0].message.content.strip()
 
-        # Validar resposta
         if resultado == "NENHUM" or not resultado:
             return None
 
-        # Extrair número usando regex da resposta
         match = PHONE_REGEX.search(resultado)
         if match:
             numero = match.group(0)
             logger.info(f"✅ IA Groq extraiu WhatsApp: {numero}")
             return numero
-
-        return None
-
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar Groq para extrair WhatsApp: {e}")
-        return None
+        logger.warning(f"⚠️ Falha ao usar Groq: {e}")
+
+    return None
+
+
+def _extrair_com_openai(prompt: str) -> Optional[str]:
+    """Extrai usando OpenAI API."""
+    try:
+        response = OPENAI_CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=20,
+        )
+        resultado = response.choices[0].message.content.strip()
+
+        if resultado == "NENHUM" or not resultado:
+            return None
+
+        match = PHONE_REGEX.search(resultado)
+        if match:
+            numero = match.group(0)
+            logger.info(f"✅ IA OpenAI extraiu WhatsApp: {numero}")
+            return numero
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao usar OpenAI: {e}")
+
+    return None
+
+
+def _extrair_com_openrouter(prompt: str) -> Optional[str]:
+    """Extrai usando OpenRouter API."""
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://scraper.link",
+            "X-Title": "Scraper de Telefones",
+        }
+
+        payload = {
+            "model": OPENROUTER_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 20,
+        }
+
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            logger.warning(
+                f"⚠️ OpenRouter retornou erro {response.status_code}")
+            return None
+
+        data = response.json()
+        resultado = data["choices"][0]["message"]["content"].strip()
+
+        if resultado == "NENHUM" or not resultado:
+            return None
+
+        match = PHONE_REGEX.search(resultado)
+        if match:
+            numero = match.group(0)
+            logger.info(f"✅ IA OpenRouter extraiu WhatsApp: {numero}")
+            return numero
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao usar OpenRouter: {e}")
+
+    return None
+
+
+def _extrair_com_google(prompt: str) -> Optional[str]:
+    """Extrai usando Google Gemini API."""
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=GOOGLE_API_KEY)
+        model = genai.GenerativeModel(GOOGLE_MODEL)
+
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=20,
+            )
+        )
+
+        resultado = response.text.strip()
+
+        if resultado == "NENHUM" or not resultado:
+            return None
+
+        match = PHONE_REGEX.search(resultado)
+        if match:
+            numero = match.group(0)
+            logger.info(f"✅ IA Google Gemini extraiu WhatsApp: {numero}")
+            return numero
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao usar Google Gemini: {e}")
+
+    return None
 
 
 def seguir_redirecionamentos(url: str) -> Optional[str]:
@@ -386,8 +536,8 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
             if telefone:
                 return telefone
 
-        # 6) Último recurso: usar IA (Groq) para extrair se disponível
-        numero_ia = extrair_com_ia_groq(texto_completo, "Instagram")
+        # 6) Último recurso: usar IA para extrair se disponível
+        numero_ia = extrair_com_ia(texto_completo, "Instagram")
         if numero_ia:
             return numero_ia
 
@@ -420,7 +570,7 @@ def buscar_telefone_facebook(link: str) -> Optional[str]:
             return numero
 
         # Fallback: usar IA se disponível
-        numero_ia = extrair_com_ia_groq(texto_completo, "Facebook")
+        numero_ia = extrair_com_ia(texto_completo, "Facebook")
         if numero_ia:
             return numero_ia
 

@@ -229,52 +229,110 @@ O regex suporta números brasileiros nos seguintes formatos:
 - `+5511999999999`
 - E variações similares
 
-## 🤖 Fallback com IA (Groq) - Experimental
+## 🤖 Fallback com IA - Múltiplos Provedores
 
-Para aumentar a precisão quando o método tradicional falha, o scraper suporta **fallback com IA** usando a API Groq gratuitamente!
+Para aumentar a precisão quando o método tradicional falha, o scraper suporta **múltiplos provedores de IA**!
 
-### Como Ativar:
+### Provedores Suportados:
 
-#### 1. **Obtenha uma chave Groq grátis:**
-- Acesse: https://console.groq.com/
-- Faça login com Google/GitHub
-- Copie sua chave API
+#### 1. **Groq** ⭐⭐⭐ (Recomendado)
+- **Custo**: Grátis
+- **Velocidade**: Muito rápido (milissegundos)
+- **Qualidade**: Excelente
+- **Modelo**: Mixtral 8x7B
+- **Link**: https://console.groq.com/
 
-#### 2. **Configure a variável de ambiente:**
+#### 2. **OpenAI (ChatGPT)**
+- **Custo**: Pago (créditos iniciais grátis: $5)
+- **Velocidade**: Rápido
+- **Qualidade**: Excelente
+- **Modelos**: gpt-4-mini, gpt-3.5-turbo
+- **Link**: https://platform.openai.com/api-keys
 
-**No EasyPanel:**
-1. Vá para "Variables"
-2. Adicione nova variável:
-   - **Nome**: `GROQ_API_KEY`
-   - **Valor**: `sua-chave-groq-aqui`
-3. Redeploy a aplicação
+#### 3. **OpenRouter** (Agregador)
+- **Custo**: Pago (muito barato, ~$0.001 por requisição)
+- **Velocidade**: Rápido
+- **Qualidade**: Excelente (múltiplos modelos)
+- **Modelos**: Claude, GPT-4, Llama, Mistral, etc.
+- **Link**: https://openrouter.ai/
 
-**Localmente (arquivo .env):**
-```bash
-# Copie o arquivo de exemplo
-cp .env.example .env
+#### 4. **Google Gemini**
+- **Custo**: Grátis com limite generoso
+- **Velocidade**: Rápido
+- **Qualidade**: Muito bom
+- **Modelo**: Gemini 1.5 Flash
+- **Link**: https://ai.google.dev/
 
-# Edite o arquivo e adicione sua chave
+### Como Configurar:
+
+#### No EasyPanel:
+1. Vá para "Variables" ou "Environment"
+2. Escolha qual provedor usar e adicione as variáveis:
+
+**Opção 1: Groq (Recomendado)**
+```
+IA_PROVIDER=groq
 GROQ_API_KEY=sua-chave-groq-aqui
 USE_IA_FALLBACK=true
 ```
 
-#### 3. **Como funciona:**
-1. Tenta extrair usando método tradicional (regex, links, etc.)
-2. Se falhar, usa **Groq (IA)** para analisar o conteúdo
-3. IA extrai o WhatsApp com compreensão de contexto
+**Opção 2: OpenAI**
+```
+IA_PROVIDER=openai
+OPENAI_API_KEY=sua-chave-openai-aqui
+OPENAI_MODEL=gpt-4-mini
+USE_IA_FALLBACK=true
+```
+
+**Opção 3: OpenRouter**
+```
+IA_PROVIDER=openrouter
+OPENROUTER_API_KEY=sua-chave-openrouter-aqui
+OPENROUTER_MODEL=meta-llama/llama-2-70b-chat
+USE_IA_FALLBACK=true
+```
+
+**Opção 4: Google Gemini**
+```
+IA_PROVIDER=google
+GOOGLE_API_KEY=sua-chave-google-aqui
+GOOGLE_MODEL=gemini-1.5-flash
+USE_IA_FALLBACK=true
+```
+
+3. Redeploy (EasyPanel rebuild automaticamente)
+
+#### Localmente (arquivo .env):
+```bash
+# Copie o arquivo de exemplo
+cp .env.example .env
+
+# Edite e escolha qual provedor usar
+# Exemplo: Groq
+IA_PROVIDER=groq
+GROQ_API_KEY=sua-chave-aqui
+USE_IA_FALLBACK=true
+```
+
+### Como Funciona:
+
+1. **Tenta método tradicional** (rápido, sem custo)
+   - Regex, links diretos, palavras-chave, etc.
+   
+2. **Se falhar, usa IA** (mais preciso)
+   - Analisa o conteúdo com compreensão de contexto
+   - Extrai o WhatsApp em qualquer formato
+   
+3. **Se ainda falhar, retorna null**
+   - Nenhum resultado encontrado
 
 ### Vantagens do Fallback IA:
 - ✅ **Muito mais preciso** - entende contexto
 - ✅ **Extrai em qualquer formato** - não só padrões regex
-- ✅ **Gratuito** - Groq oferece limite generoso
-- ✅ **Rápido** - Groq é muito rápido
-- ✅ **Opcional** - funciona sem IA também
-
-### Custo:
-- ✅ **Gratuito!** - Groq oferece limite grátis generoso
-- Sem cartão de crédito necessário
-- Limite: Centenas de requisições/dia no plano free
+- ✅ **Inteligente** - reconhece padrões complexos
+- ✅ **Rápido** - operação assíncrona
+- ✅ **Flexível** - suporta múltiplos provedores
+- ✅ **Escalável** - funciona com qualquer escala
 
 ### Desativar (se desejar):
 ```
