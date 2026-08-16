@@ -10,8 +10,9 @@ Funcionalidades principais:
 - Funciona com redirecionamentos HTTP e JavaScript
 - Fallback via API privada do Instagram (aiograpi) para perfis comerciais
 - Fallback final via IA (Groq/OpenAI/OpenRouter/Google) quando nada mais funciona
-- Acessa a API via FastAPI com dois endpoints:
+- Acessa a API via FastAPI com três endpoints:
   * POST /extrair-telefone: extrai telefone/WhatsApp de uma fonte
+  * POST /extrair-telefone-site: extrai telefone de qualquer site
   * GET /health: verifica se a API está online
 """
 
@@ -132,9 +133,14 @@ class ScrapeRequest(BaseModel):
 
 
 class ScrapeResponse(BaseModel):
-    """Modelo para retornar o telefone encontrado e sua fonte"""
+    """Resposta estruturada - SEMPRE retorna dados, mesmo sem encontrar telefone"""
+    status: str = "sem_resultado"  # "sucesso" | "sem_resultado" | "erro"
     telefone_encontrado: Optional[str] = None
+    todos_os_numeros: List[str] = []
     fonte: Optional[str] = None
+    fontes_verificadas: List[str] = []
+    mensagem: str = ""
+    erro: Optional[str] = None
 
 
 def somenteNumeros(valor) -> str:
@@ -427,7 +433,7 @@ def seguir_redirecionamento_via_browser(url: str) -> Optional[str]:
     """Fallback para encurtadores que redirecionam via JavaScript
     (window.location) em vez de um redirect HTTP de verdade."""
     try:
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        page = StealthyFetcher.fetch(url, headless=True, network_idle=False, timeout=15)
         return page.url if hasattr(page, "url") else None
     except Exception as e:
         logger.warning(f"Falha ao seguir redirect via browser de {url}: {e}")
@@ -474,7 +480,7 @@ def buscar_whatsapp_em_link_bio(url: str) -> Optional[str]:
     """Abre uma página tipo Linktree/Beacons/Bio.link, acha o botão
     de WhatsApp (mesmo atrás de um encurtador) e extrai o número."""
     try:
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        page = StealthyFetcher.fetch(url, headless=True, network_idle=False, timeout=20)
 
         links = page.css("a::attr(href)").getall() or []
         textos = page.css("a::text").getall() or []
@@ -531,13 +537,19 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
     6) Fallback via API privada do Instagram (aiograpi)
     7) Último recurso: usa IA para extrair"""
     try:
-        username = link.rstrip(
-            "/").split("/")[-1].lstrip("@") if "instagram.com" in link else link.lstrip("@")
+        # MELHORIA: Extrair username limpo (sem parâmetros de URL)
+        if "instagram.com" in link:
+            parsed = urlparse(link)
+            caminho = parsed.path.strip("/")
+            username = caminho.split("/")[-1] if caminho else link.lstrip("@")
+        else:
+            username = link.lstrip("@")
+        
         url = f"https://www.instagram.com/{username}/"
 
-        # Fetch com timeout maior para Instagram
+        # Fetch com timeout reduzido e network_idle=False (não travar)
         page = StealthyFetcher.fetch(
-            url, headless=True, network_idle=True, timeout=30)
+            url, headless=True, network_idle=False, timeout=25)
 
         # 1) Tenta extrair de metadados (og:description + description)
         descricao = page.css(
@@ -622,7 +634,7 @@ def buscar_telefone_facebook(link: str) -> Optional[str]:
     2) Procura em todo o texto visível da página
     3) Usa IA como fallback se disponível"""
     try:
-        page = StealthyFetcher.fetch(link, headless=True, network_idle=True)
+        page = StealthyFetcher.fetch(link, headless=True, network_idle=False, timeout=20)
         # Tenta extrair da metadescription (Open Graph para compartilhamento)
         descricao = page.css(
             "meta[property='og:description']::attr(content)").get() or ""
@@ -649,31 +661,150 @@ def buscar_telefone_facebook(link: str) -> Optional[str]:
         return None
 
 
+def buscar_telefone_em_site_generico(url: str) -> Optional[str]:
+    """Busca telefone/WhatsApp em qualquer site (não só link-in-bio)"""
+    try:
+        logger.info(f"🔍 Buscando telefone em site genérico: {url}")
+        
+        # Abrir a página com timeout reduzido
+        page = StealthyFetcher.fetch(
+            url, 
+            headless=True, 
+            network_idle=False,
+            timeout=20
+        )
+        
+        # 1) Procurar links tel: diretos
+        links = page.css("a[href^='tel:']::attr(href)").getall() or []
+        for href in links:
+            numero = extrair_numero_de_tel(href)
+            if numero:
+                logger.info(f"✅ Telefone encontrado em link tel:: {numero}")
+                return numero
+        
+        # 2) Procurar links wa.me diretos
+        links_whatsapp = page.css("a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
+        for href in links_whatsapp:
+            numero = extrair_numero_de_url_whatsapp(href)
+            if numero:
+                logger.info(f"✅ WhatsApp encontrado em link direto: {numero}")
+                return numero
+        
+        # 3) Extrair do texto completo da página (meta tags + texto visível)
+        metadados = page.css("meta::attr(content)").getall() or []
+        metadados_texto = " ".join(metadados)
+        
+        telefone = extrair_telefone_de_texto(metadados_texto)
+        if telefone:
+            logger.info(f"✅ Telefone encontrado em meta tags: {telefone}")
+            return telefone
+        
+        # 4) Extrair do texto visível da página
+        texto_completo = page.get_all_text() if hasattr(page, "get_all_text") else str(page)
+        
+        telefone = extrair_telefone_de_texto(texto_completo)
+        if telefone:
+            logger.info(f"✅ Telefone encontrado no texto da página: {telefone}")
+            return telefone
+        
+        # 5) Fallback com IA
+        numero_ia = extrair_com_ia(texto_completo, "site")
+        if numero_ia:
+            logger.info(f"✅ Telefone encontrado via IA: {numero_ia}")
+            return numero_ia
+        
+        logger.warning(f"⚠️ Nenhum telefone encontrado em {url}")
+        return None
+    except Exception as e:
+        logger.warning(f"Falha ao buscar telefone em site genérico ({url}): {e}")
+        return None
+
+
 @app.post("/extrair-telefone", response_model=ScrapeResponse)
 def extrair_telefone(req: ScrapeRequest):
-    """Endpoint principal para extrair telefone/WhatsApp.
-    Procura em link-in-bio, Instagram e Facebook (nessa ordem de prioridade).
-    Retorna o telefone encontrado e a fonte de onde foi extraído."""
-    # Primeiro tenta extrair do link-in-bio (Linktree, Beacons, etc.)
-    if req.link_bio:
-        numero = buscar_whatsapp_em_link_bio(req.link_bio)
-        if numero:
-            return ScrapeResponse(telefone_encontrado=numero, fonte="link_bio")
+    """Endpoint principal - SEMPRE retorna resposta estruturada"""
+    fontes_verificadas = []
 
-    # Se não encontrou, tenta no Instagram
-    if req.instagram:
-        telefone = buscar_telefone_instagram(req.instagram)
-        if telefone:
-            return ScrapeResponse(telefone_encontrado=telefone, fonte="instagram")
+    try:
+        if req.link_bio:
+            fontes_verificadas.append("link_bio")
+            numero = buscar_whatsapp_em_link_bio(req.link_bio)
+            if numero:
+                return ScrapeResponse(
+                    status="sucesso",
+                    telefone_encontrado=numero,
+                    todos_os_numeros=[numero],
+                    fonte="link_bio",
+                    fontes_verificadas=fontes_verificadas,
+                    mensagem=f"Telefone encontrado no link-in-bio: {numero}",
+                )
 
-    # Se ainda não encontrou, tenta no Facebook
-    if req.facebook:
-        telefone = buscar_telefone_facebook(req.facebook)
-        if telefone:
-            return ScrapeResponse(telefone_encontrado=telefone, fonte="facebook")
+        if req.instagram:
+            fontes_verificadas.append("instagram")
+            telefone = buscar_telefone_instagram(req.instagram)
+            if telefone:
+                return ScrapeResponse(
+                    status="sucesso",
+                    telefone_encontrado=telefone,
+                    todos_os_numeros=[telefone],
+                    fonte="instagram",
+                    fontes_verificadas=fontes_verificadas,
+                    mensagem=f"Telefone encontrado no Instagram: {telefone}",
+                )
 
-    # Se nenhuma fonte tinha telefone, retorna vazio
-    return ScrapeResponse(telefone_encontrado=None, fonte=None)
+        if req.facebook:
+            fontes_verificadas.append("facebook")
+            telefone = buscar_telefone_facebook(req.facebook)
+            if telefone:
+                return ScrapeResponse(
+                    status="sucesso",
+                    telefone_encontrado=telefone,
+                    todos_os_numeros=[telefone],
+                    fonte="facebook",
+                    fontes_verificadas=fontes_verificadas,
+                    mensagem=f"Telefone encontrado no Facebook: {telefone}",
+                )
+
+        return ScrapeResponse(
+            status="sem_resultado",
+            fontes_verificadas=fontes_verificadas,
+            mensagem="Nenhum telefone encontrado nas fontes informadas",
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Erro geral no scraping: {e}")
+        return ScrapeResponse(
+            status="erro",
+            fontes_verificadas=fontes_verificadas,
+            mensagem="Erro ao processar a requisição",
+            erro=str(e),
+        )
+
+
+@app.post("/extrair-telefone-site")
+def extrair_telefone_site(req: dict):
+    """Endpoint para extrair telefone de qualquer site (não só redes sociais)"""
+    url = req.get("url")
+    if not url:
+        return {"status": "erro", "mensagem": "Parâmetro 'url' é obrigatório", "telefone_encontrado": None}
+    
+    telefone = buscar_telefone_em_site_generico(url)
+    if telefone:
+        return {
+            "status": "sucesso",
+            "telefone_encontrado": telefone,
+            "todos_os_numeros": [telefone],
+            "fonte": "site_generico",
+            "mensagem": f"Telefone encontrado no site: {telefone}"
+        }
+    
+    return {
+        "status": "sem_resultado",
+        "telefone_encontrado": None,
+        "todos_os_numeros": [],
+        "fonte": "site_generico",
+        "mensagem": "Nenhum telefone encontrado no site"
+    }
 
 
 @app.get("/health")
