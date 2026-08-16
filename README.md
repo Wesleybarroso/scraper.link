@@ -291,52 +291,69 @@ O scraper registra avisos e erros em tempo real. Para ver os logs:
 
 ## 🚢 Deploy em Produção
 
-### Usando Gunicorn
+### Opção 1: EasyPanel (Recomendado) ⭐
+
+**EasyPanel** é a forma mais fácil de fazer deploy! Ele gerencia tudo automaticamente.
+
+#### Passo a Passo:
+
+1. **Acesse o EasyPanel** (http://seu-dominio/easypanel)
+2. **Clique em "Add Service" → "Application"**
+3. **Preencha os dados:**
+   - **Nome**: `scraper-leads`
+   - **Repository URL**: `https://github.com/Wesleybarroso/scraper.link.git`
+   - **Branch**: `main`
+   - **Port**: `8000`
+   - **Container Port**: `8000`
+
+4. **Clique em "Deploy"**
+5. **Aguarde a conclusão** (cerca de 2-3 minutos)
+6. **Acesse via**: `https://seu-dominio.com` ou conforme configurado
+
+#### Vantagens do EasyPanel:
+- ✅ Deploy automático ao fazer push no GitHub
+- ✅ SSL/HTTPS automático
+- ✅ Gerenciamento de banco de dados
+- ✅ Monitoramento de saúde (Health Check)
+- ✅ Backups automáticos
+- ✅ Escalabilidade fácil
+
+#### Variáveis de Ambiente (opcional no EasyPanel):
+
+Se precisar de configurações customizadas:
+
+```
+LOG_LEVEL=INFO
+WORKERS=4
+```
+
+---
+
+### Opção 2: Usando Gunicorn (Produção Local)
 
 ```bash
 pip install gunicorn
 gunicorn -w 4 -b 0.0.0.0:8000 main:app
 ```
 
-### Usando Docker
+**Parâmetros:**
+- `-w 4`: 4 workers (ajuste conforme CPU)
+- `-b 0.0.0.0:8000`: Bind em todas as interfaces, porta 8000
 
-O projeto inclui um `Dockerfile` otimizado para produção com suporte a navegação com Selenium.
+---
 
-#### Pré-requisitos Docker
+### Opção 3: Usando Docker Localmente
 
-- Docker instalado ([Download](https://www.docker.com/products/docker-desktop))
-- Docker Compose (opcional)
-
-#### Construir a imagem
+#### Build e Run Simples:
 
 ```bash
 docker build -t scraper-leads .
-```
-
-#### Executar o container
-
-```bash
-# Modo interativo
 docker run -p 8000:8000 scraper-leads
-
-# Modo detached (background)
-docker run -d -p 8000:8000 --name scraper scraper-leads
-
-# Com variáveis de ambiente
-docker run -d -p 8000:8000 \
-  -e LOG_LEVEL=INFO \
-  scraper-leads
 ```
 
-#### Acessar a API no Docker
+#### Com Docker Compose:
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- Health Check: http://localhost:8000/health
-
-#### Docker Compose (opcional)
-
-Crie um arquivo `docker-compose.yml`:
+Crie `docker-compose.yml`:
 
 ```yaml
 version: '3.8'
@@ -349,42 +366,142 @@ services:
     environment:
       - LOG_LEVEL=INFO
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 ```
 
-Execute com:
+Execute:
 
 ```bash
 docker-compose up -d
 ```
 
-#### Parar o container
+---
+
+### Opção 4: Nginx + Uvicorn (Servidor Dedicado)
+
+Para máxima performance e segurança:
+
+**1. Instale dependências:**
 
 ```bash
-# Pelo nome
-docker stop scraper
-
-# Ou pelo ID (obter com: docker ps)
-docker stop <container_id>
+sudo apt-get update
+sudo apt-get install -y nginx supervisor python3-venv
 ```
 
-#### Ver logs
+**2. Crie usuário para a aplicação:**
 
 ```bash
-docker logs scraper
-
-# Logs em tempo real
-docker logs -f scraper
+sudo useradd -m scraper
+sudo su - scraper
 ```
 
-#### Dockerfile Detalhes
+**3. Clone e configure:**
 
-O Dockerfile incluído:
-- Usa Python 3.12-slim (imagem leve)
-- Instala dependências do sistema para Selenium
-- Instala pacotes Python do requirements.txt
-- Instala drivers do Selenium via `scrapling install`
-- Expõe porta 8000
-- Executa o servidor uvicorn
+```bash
+git clone https://github.com/Wesleybarroso/scraper.link.git
+cd scraper.link
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requeriments.txt
+```
+
+**4. Configure Supervisor** (`/etc/supervisor/conf.d/scraper.conf`):
+
+```ini
+[program:scraper-leads]
+directory=/home/scraper/scraper.link
+command=/home/scraper/scraper.link/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
+user=scraper
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/scraper-leads.err.log
+stdout_logfile=/var/log/scraper-leads.out.log
+```
+
+**5. Configure Nginx** (`/etc/nginx/sites-available/scraper`):
+
+```nginx
+upstream scraper {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen 80;
+    server_name seu-dominio.com;
+
+    location / {
+        proxy_pass http://scraper;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**6. Ative e inicie:**
+
+```bash
+sudo a2ensite scraper
+sudo systemctl restart nginx
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start scraper-leads
+```
+
+---
+
+### Opção 5: Railway, Render ou Heroku
+
+Estes serviços suportam deploy direto do GitHub:
+
+#### Railway:
+```bash
+railway login
+railway init
+railway link <project-id>
+railway up
+```
+
+#### Render:
+1. Acesse [render.com](https://render.com)
+2. Connect seu GitHub
+3. Selecione o repositório
+4. Render detecta o Dockerfile automaticamente
+
+#### Heroku:
+```bash
+heroku create seu-app-name
+git push heroku main
+```
+
+---
+
+### Comparação de Opções
+
+| Opção | Facilidade | Custo | Performance | Escalabilidade | Recomendado para |
+|-------|-----------|-------|-------------|-----------------|------------------|
+| **EasyPanel** ⭐ | ⭐⭐⭐⭐⭐ | Médio | Excelente | Excelente | Produção, iniciantes |
+| **Docker Local** | ⭐⭐⭐ | Baixo | Muito Bom | Bom | Desenvolvimento, testes |
+| **Gunicorn** | ⭐⭐ | Baixo | Bom | Médio | Servidor dedicado |
+| **Nginx + Uvicorn** | ⭐⭐ | Baixo | Excelente | Excelente | Produção High Performance |
+| **Railway/Render** | ⭐⭐⭐⭐ | Médio | Muito Bom | Muito Bom | Startup, prototipagem |
+| **Heroku** | ⭐⭐⭐⭐ | Alto | Bom | Bom | Prototipagem rápida |
+
+### 🎯 Recomendação
+
+**Para EasyPanel:** Use a Opção 1, é a mais fácil e você terá tudo pronto em minutos!
+
+**Para desenvolvimento local:** Use Docker Compose (Opção 3)
+
+**Para máxima performance:** Use Nginx + Uvicorn (Opção 4)
+
+---
 
 ## 📄 Licença
 
