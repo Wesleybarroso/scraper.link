@@ -1,64 +1,57 @@
 """
 SCRAPER DE CONTATOS - Extrator de Telefones/WhatsApp
-=====================================================
-Este é um web scraper automatizado que busca números de telefone e links de WhatsApp
-em perfis de redes sociais (Instagram, Facebook) e páginas de link-in-bio (Linktree, Beacons, etc.).
+====================================================
+Versão com Playwright + NopeCHA Extension
 
-Funcionalidades principais:
-- Extrai telefones usando padrão regex para números brasileiros
-- Resolve URLs de encurtadores (bit.ly, linktr.ee, etc.) para encontrar WhatsApp
-- Funciona com redirecionamentos HTTP e JavaScript
-- Fallback via API privada do Instagram (aiograpi) para perfis comerciais
-- Fallback final via IA (Groq/OpenAI/OpenRouter/Google) quando nada mais funciona
-- Acessa a API via FastAPI com três endpoints:
-  * POST /extrair-telefone: extrai telefone/WhatsApp de uma fonte
-  * POST /extrair-telefone-site: extrai telefone de qualquer site
-  * GET /health: verifica se a API está online
+Funcionalidades:
+- Extrai telefones com regex brasileiro
+- Resolve encurtadores (HTTP + JavaScript)
+- Busca em Instagram, Facebook e Link-in-bio
+- Fallback via API privada do Instagram (aiograpi)
+- Fallback via IA (Groq / OpenAI / OpenRouter / Google)
+- API REST com FastAPI
+- Playwright + extensão NopeCHA para CAPTCHAs
 """
 
-# Importações de bibliotecas padrão para processamento de dados e logging
 import re
 import logging
 import time
 import os
 import asyncio
-from typing import Optional, List
+from pathlib import Path
+from typing import Optional, List, Tuple
 from urllib.parse import urlparse, parse_qs
+from contextlib import contextmanager
 
-# Importações para requisições HTTP, API web e scraping
 import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
-from scrapling.fetchers import StealthyFetcher
 from dotenv import load_dotenv
 from aiograpi import Client as InstagramClient
 
-# Carregar variáveis de ambiente do arquivo .env (se existir)
+from playwright.sync_api import sync_playwright, BrowserContext, Page
+
+# Stealth opcional
+try:
+    from playwright_stealth import stealth_sync
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
+
 load_dotenv()
 
-# Configuração de logs para rastrear execução e erros
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper-leads")
 
-# Criação da aplicação FastAPI com título
-app = FastAPI(title="Scraper de telefone - Leads")
+app = FastAPI(title="Scraper de telefone - Leads (Playwright + NopeCHA)")
 
-# Padrão regex para encontrar números de telefone brasileiros (com ou sem +55)
-# Aceita formatos como: (11) 99999-9999, 11 9 9999-9999, +55 11 99999-9999, etc.
+# ==================== CONFIGURAÇÕES ====================
+
 PHONE_REGEX = re.compile(r"(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}")
 
-# Domínios que já SÃO o link final do WhatsApp (contém o número embutido).
-# "whatsapp.com" pega qualquer subdomínio: web., api., chat., click., etc.
 WHATSAPP_DIRECT_DOMAINS = ("wa.me", "whatsapp.com")
+WHATSAPP_HINT_KEYWORDS = ("whatsapp", "whats", "zap", "fale conosco", "fale com")
 
-# Palavras-chave usadas pra reconhecer um BOTÃO de WhatsApp em link-in-bio
-# (linktree, beacons, bio.link, etc.), mesmo quando ele passa por um encurtador
-# de terceiro (tintim.link, sh.linktr.ee, bit.ly, etc.) antes de chegar no wa.me
-WHATSAPP_HINT_KEYWORDS = ("whatsapp", "whats", "zap",
-                          "fale conosco", "fale com")
-
-# Headers do navegador para fazer requisições que pareçam vir de um usuário real
-# Isso evita que sites bloqueiem as requisições automatizadas
 HEADERS_NAVEGADOR = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -66,75 +59,75 @@ HEADERS_NAVEGADOR = {
     )
 }
 
-# ========== CONFIGURAÇÃO DE APIS DE IA (Fallback) ==========
-# Carrega configurações de IA de variáveis de ambiente
+# NopeCHA + Playwright
+NOPECHA_KEY = os.getenv("NOPECHA_KEY", "")
+NOPECHA_PATH = os.getenv("NOPECHA_PATH", str(Path("./nopecha-extension").resolve()))
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
+USER_DATA_DIR = os.getenv("BROWSER_USER_DATA", "/tmp/scraper-link-profile")
+
+# IA
 IA_PROVIDER = os.getenv("IA_PROVIDER", "groq").lower()
 USE_IA_FALLBACK = os.getenv("USE_IA_FALLBACK", "true").lower() == "true"
-
-# Chaves de API para diferentes provedores
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-2-70b-chat")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-70b-instruct")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
 
-# Inicializar clientes de IA
 GROQ_CLIENT = None
 OPENAI_CLIENT = None
 
-# Inicializar Groq
 if GROQ_API_KEY:
     try:
         from groq import Groq
         GROQ_CLIENT = Groq(api_key=GROQ_API_KEY)
-        logger.info("✅ Groq API configurada com sucesso")
+        logger.info("✅ Groq API configurada")
     except Exception as e:
         logger.warning(f"⚠️ Falha ao configurar Groq: {e}")
 
-# Inicializar OpenAI
 if OPENAI_API_KEY:
     try:
         from openai import OpenAI
         OPENAI_CLIENT = OpenAI(api_key=OPENAI_API_KEY)
-        logger.info("✅ OpenAI API configurada com sucesso")
+        logger.info("✅ OpenAI API configurada")
     except Exception as e:
         logger.warning(f"⚠️ Falha ao configurar OpenAI: {e}")
 
-# Log do provedor IA selecionado
 if USE_IA_FALLBACK:
-    logger.info(f"🤖 Provedor de IA selecionado: {IA_PROVIDER.upper()}")
+    logger.info(f"🤖 Provedor de IA: {IA_PROVIDER.upper()}")
 else:
-    logger.info("🔇 Fallback com IA desativado")
+    logger.info("🔇 Fallback IA desativado")
 
-# ========== CONFIGURAÇÃO DO AIOGRAPI (Fallback via API privada do Instagram) ==========
-# Usa a mesma API que o app oficial do Instagram usa, através de uma conta logada.
-# Só retorna telefone se o perfil-alvo for conta comercial com contato público configurado.
+# aiograpi
 USE_AIOGRAPI_FALLBACK = os.getenv("USE_AIOGRAPI_FALLBACK", "true").lower() == "true"
 IG_USERNAME = os.getenv("IG_USERNAME", "")
 IG_PASSWORD = os.getenv("IG_PASSWORD", "")
-SESSAO_INSTAGRAM_PATH = "/app/ig_session.json"
+SESSAO_INSTAGRAM_PATH = "/tmp/ig_session.json"
 
 if USE_AIOGRAPI_FALLBACK and IG_USERNAME and IG_PASSWORD:
     logger.info("📷 Fallback aiograpi configurado")
 else:
     USE_AIOGRAPI_FALLBACK = False
-    logger.info("🔇 Fallback aiograpi desativado (sem credenciais ou desligado)")
+    logger.info("🔇 Fallback aiograpi desativado")
 
-# Modelos de dados usando Pydantic para validação de requisições e respostas
+DOMINIOS_IGNORAR_NO_FALLBACK = (
+    "instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com",
+    "youtube.com", "linkedin.com", "spotify.com", "apple.com",
+)
+MAX_LINKS_FALLBACK = 15
 
+# ==================== MODELOS ====================
 
 class ScrapeRequest(BaseModel):
-    """Modelo para receber requisição de scraping com URLs de redes sociais"""
     instagram: Optional[str] = None
     facebook: Optional[str] = None
-    link_bio: Optional[str] = None  # linktree, beacons.ai, bio.link, etc.
+    link_bio: Optional[str] = None
 
 
 class ScrapeResponse(BaseModel):
-    """Resposta estruturada - SEMPRE retorna dados, mesmo sem encontrar telefone"""
-    status: str = "sem_resultado"  # "sucesso" | "sem_resultado" | "erro"
+    status: str = "sem_resultado"
     telefone_encontrado: Optional[str] = None
     todos_os_numeros: List[str] = []
     fonte: Optional[str] = None
@@ -143,16 +136,137 @@ class ScrapeResponse(BaseModel):
     erro: Optional[str] = None
 
 
+# ==================== PLAYWRIGHT + NOPECHA ====================
+
+@contextmanager
+def browser_context():
+    """
+    Context manager que abre um browser persistente com:
+    - Stealth básico
+    - Extensão NopeCHA (se a pasta existir)
+    """
+    playwright = sync_playwright().start()
+    args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-infobars",
+    ]
+
+    extension_loaded = False
+    if Path(NOPECHA_PATH).exists() and (Path(NOPECHA_PATH) / "manifest.json").exists():
+        args.extend([
+            f"--disable-extensions-except={NOPECHA_PATH}",
+            f"--load-extension={NOPECHA_PATH}",
+        ])
+        extension_loaded = True
+        logger.info(f"🧩 Extensão NopeCHA carregada de: {NOPECHA_PATH}")
+    else:
+        logger.info("ℹ️ Pasta NopeCHA não encontrada – rodando sem extensão")
+
+    context = playwright.chromium.launch_persistent_context(
+        user_data_dir=USER_DATA_DIR,
+        headless=BROWSER_HEADLESS,
+        channel="chromium",
+        args=args,
+        viewport={"width": 1366, "height": 768},
+        locale="pt-BR",
+        user_agent=HEADERS_NAVEGADOR["User-Agent"],
+        ignore_default_args=["--enable-automation"],
+    )
+
+    # Configura chave do NopeCHA uma vez por contexto
+    if extension_loaded and NOPECHA_KEY:
+        try:
+            setup_page = context.new_page()
+            setup_page.goto(f"https://nopecha.com/setup#{NOPECHA_KEY}", timeout=15000)
+            setup_page.wait_for_timeout(2000)
+            setup_page.close()
+            logger.info("🔑 Chave NopeCHA configurada")
+        except Exception as e:
+            logger.warning(f"⚠️ Não foi possível configurar NopeCHA key: {e}")
+
+    try:
+        yield context
+    finally:
+        context.close()
+        playwright.stop()
+
+
+def fetch_page(url: str, timeout: int = 25000) -> Tuple[str, str]:
+    """
+    Abre a URL com Playwright (+ NopeCHA se disponível).
+    Retorna (html, url_final)
+    """
+    with browser_context() as context:
+        page = context.new_page()
+        if HAS_STEALTH:
+            try:
+                stealth_sync(page)
+            except Exception:
+                pass
+
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        # Tempo para a extensão NopeCHA resolver CAPTCHA se aparecer
+        page.wait_for_timeout(2500)
+
+        html = page.content()
+        final_url = page.url
+        page.close()
+        return html, final_url
+
+
+def get_page_links_and_text(url: str, timeout: int = 25000) -> Tuple[List[dict], str, str]:
+    """
+    Abre a página e retorna:
+    - lista de {href, text}
+    - texto completo visível
+    - url final
+    """
+    with browser_context() as context:
+        page = context.new_page()
+        if HAS_STEALTH:
+            try:
+                stealth_sync(page)
+            except Exception:
+                pass
+
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        page.wait_for_timeout(2500)
+
+        links = page.eval_on_selector_all(
+            "a",
+            """els => els.map(e => ({
+                href: e.href || '',
+                text: (e.innerText || e.textContent || '').trim()
+            }))"""
+        )
+
+        # texto visível
+        texto = page.inner_text("body") if page.query_selector("body") else ""
+
+        # meta descriptions
+        metas = page.eval_on_selector_all(
+            "meta[property='og:description'], meta[name='description']",
+            "els => els.map(e => e.content || '').join(' ')"
+        )
+        if metas:
+            texto = metas + " " + texto
+
+        final_url = page.url
+        page.close()
+        return links or [], texto, final_url
+
+
+# ==================== FUNÇÕES AUXILIARES ====================
+
 def somenteNumeros(valor) -> str:
-    """Remove tudo que não for dígito de um valor (mesma lógica usada
-    no node 'Code preparar leads' do n8n, mantida consistente aqui)."""
     if valor is None:
         return ""
     return "".join(c for c in str(valor) if c.isdigit())
 
 
 def extrair_telefone_de_texto(texto: str) -> Optional[str]:
-    """Extrai o primeiro número de telefone encontrado no texto usando regex"""
     if not texto:
         return None
     match = PHONE_REGEX.search(texto)
@@ -160,7 +274,6 @@ def extrair_telefone_de_texto(texto: str) -> Optional[str]:
 
 
 def extrair_numero_de_url_whatsapp(url: str) -> Optional[str]:
-    """Extrai o número de dentro de uma URL wa.me ou api.whatsapp.com."""
     parsed = urlparse(url)
     if "wa.me" in parsed.netloc:
         numero = parsed.path.strip("/")
@@ -174,36 +287,28 @@ def extrair_numero_de_url_whatsapp(url: str) -> Optional[str]:
 
 
 def eh_link_whatsapp_direto(url: str) -> bool:
-    """Verifica se a URL é um link direto do WhatsApp (wa.me ou whatsapp.com)"""
     return any(dominio in url for dominio in WHATSAPP_DIRECT_DOMAINS)
 
 
 def parece_botao_whatsapp(href: str, texto_do_link: str) -> bool:
-    """Verifica se o link e seu texto contêm palavras-chave de WhatsApp"""
     alvo = f"{href} {texto_do_link}".lower()
     return any(kw in alvo for kw in WHATSAPP_HINT_KEYWORDS)
 
 
+def extrair_numero_de_tel(href: str) -> Optional[str]:
+    if not href.lower().startswith("tel:"):
+        return None
+    numero = re.sub(r"\D", "", href)
+    return numero if numero else None
+
+
+# ==================== FALLBACK IA ====================
+
 def extrair_com_ia(conteudo: str, origem: str = "página") -> Optional[str]:
-    """Fallback: usa IA para extrair WhatsApp quando método tradicional falha.
-    Suporta múltiplos provedores: Groq, OpenAI, OpenRouter, Google.
-
-    Args:
-        conteudo: Texto/HTML da página a analisar
-        origem: Origem (Instagram, Facebook, etc.)
-
-    Returns:
-        Número de WhatsApp encontrado ou None
-    """
-    if not USE_IA_FALLBACK:
+    if not USE_IA_FALLBACK or not conteudo or len(conteudo) < 10:
         return None
 
-    if not conteudo or len(conteudo) < 10:
-        return None
-
-    # Preparar conteúdo (limitar tamanho)
     conteudo_limitado = conteudo[:2000]
-
     prompt = f"""Você é um extrator de dados especializado em extrair números de WhatsApp.
 
 Analise o seguinte conteúdo de um perfil {origem} e extraia APENAS o número de WhatsApp no formato brasileiro.
@@ -217,7 +322,6 @@ Instruções:
 3. Se não encontrar WhatsApp, retorne: NENHUM
 4. Não inclua explicações, retorne apenas o número ou NENHUM"""
 
-    # Tentar com provedor selecionado
     if IA_PROVIDER == "groq" and GROQ_CLIENT:
         return _extrair_com_groq(prompt)
     elif IA_PROVIDER == "openai" and OPENAI_CLIENT:
@@ -227,24 +331,19 @@ Instruções:
     elif IA_PROVIDER == "google" and GOOGLE_API_KEY:
         return _extrair_com_google(prompt)
 
-    # Fallback: tentar qualquer uma disponível
-    logger.warning(
-        f"⚠️ Provedor {IA_PROVIDER} não configurado, tentando alternativas...")
-
+    # fallback automático
     if GROQ_CLIENT:
         return _extrair_com_groq(prompt)
-    elif OPENAI_CLIENT:
+    if OPENAI_CLIENT:
         return _extrair_com_openai(prompt)
-    elif OPENROUTER_API_KEY:
+    if OPENROUTER_API_KEY:
         return _extrair_com_openrouter(prompt)
-    elif GOOGLE_API_KEY:
+    if GOOGLE_API_KEY:
         return _extrair_com_google(prompt)
-
     return None
 
 
 def _extrair_com_groq(prompt: str) -> Optional[str]:
-    """Extrai usando Groq API."""
     try:
         response = GROQ_CLIENT.chat.completions.create(
             model="mixtral-8x7b-32768",
@@ -253,23 +352,18 @@ def _extrair_com_groq(prompt: str) -> Optional[str]:
             max_tokens=20,
         )
         resultado = response.choices[0].message.content.strip()
-
         if resultado == "NENHUM" or not resultado:
             return None
-
         match = PHONE_REGEX.search(resultado)
         if match:
-            numero = match.group(0)
-            logger.info(f"✅ IA Groq extraiu WhatsApp: {numero}")
-            return numero
+            logger.info(f"✅ IA Groq extraiu: {match.group(0)}")
+            return match.group(0)
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar Groq: {e}")
-
+        logger.warning(f"⚠️ Falha Groq: {e}")
     return None
 
 
 def _extrair_com_openai(prompt: str) -> Optional[str]:
-    """Extrai usando OpenAI API."""
     try:
         response = OPENAI_CLIENT.chat.completions.create(
             model=OPENAI_MODEL,
@@ -278,23 +372,18 @@ def _extrair_com_openai(prompt: str) -> Optional[str]:
             max_tokens=20,
         )
         resultado = response.choices[0].message.content.strip()
-
         if resultado == "NENHUM" or not resultado:
             return None
-
         match = PHONE_REGEX.search(resultado)
         if match:
-            numero = match.group(0)
-            logger.info(f"✅ IA OpenAI extraiu WhatsApp: {numero}")
-            return numero
+            logger.info(f"✅ IA OpenAI extraiu: {match.group(0)}")
+            return match.group(0)
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar OpenAI: {e}")
-
+        logger.warning(f"⚠️ Falha OpenAI: {e}")
     return None
 
 
 def _extrair_com_openrouter(prompt: str) -> Optional[str]:
-    """Extrai usando OpenRouter API."""
     try:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -302,51 +391,37 @@ def _extrair_com_openrouter(prompt: str) -> Optional[str]:
             "HTTP-Referer": "https://scraper.link",
             "X-Title": "Scraper de Telefones",
         }
-
         payload = {
             "model": OPENROUTER_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
             "max_tokens": 20,
         }
-
         response = httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload,
             timeout=30,
         )
-
         if response.status_code != 200:
-            logger.warning(
-                f"⚠️ OpenRouter retornou erro {response.status_code}")
             return None
-
-        data = response.json()
-        resultado = data["choices"][0]["message"]["content"].strip()
-
+        resultado = response.json()["choices"][0]["message"]["content"].strip()
         if resultado == "NENHUM" or not resultado:
             return None
-
         match = PHONE_REGEX.search(resultado)
         if match:
-            numero = match.group(0)
-            logger.info(f"✅ IA OpenRouter extraiu WhatsApp: {numero}")
-            return numero
+            logger.info(f"✅ IA OpenRouter extraiu: {match.group(0)}")
+            return match.group(0)
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar OpenRouter: {e}")
-
+        logger.warning(f"⚠️ Falha OpenRouter: {e}")
     return None
 
 
 def _extrair_com_google(prompt: str) -> Optional[str]:
-    """Extrai usando Google Gemini API."""
     try:
         import google.generativeai as genai
-
         genai.configure(api_key=GOOGLE_API_KEY)
         model = genai.GenerativeModel(GOOGLE_MODEL)
-
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -354,36 +429,27 @@ def _extrair_com_google(prompt: str) -> Optional[str]:
                 max_output_tokens=20,
             )
         )
-
         resultado = response.text.strip()
-
         if resultado == "NENHUM" or not resultado:
             return None
-
         match = PHONE_REGEX.search(resultado)
         if match:
-            numero = match.group(0)
-            logger.info(f"✅ IA Google Gemini extraiu WhatsApp: {numero}")
-            return numero
+            logger.info(f"✅ IA Google extraiu: {match.group(0)}")
+            return match.group(0)
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar Google Gemini: {e}")
-
+        logger.warning(f"⚠️ Falha Google: {e}")
     return None
 
 
-async def _buscar_telefone_via_aiograpi_async(username: str) -> Optional[str]:
-    """Loga (ou reusa sessão salva) na API privada do Instagram e busca
-    o telefone público configurado no perfil comercial informado."""
-    cliente = InstagramClient()
+# ==================== AIOGRAPI ====================
 
+async def _buscar_telefone_via_aiograpi_async(username: str) -> Optional[str]:
+    cliente = InstagramClient()
     if os.path.exists(SESSAO_INSTAGRAM_PATH):
         cliente.load_settings(SESSAO_INSTAGRAM_PATH)
-
     await cliente.login(IG_USERNAME, IG_PASSWORD)
     cliente.dump_settings(SESSAO_INSTAGRAM_PATH)
-
     info = await cliente.user_info_by_username(username)
-
     telefone = (
         getattr(info, "public_phone_number", None)
         or getattr(info, "contact_phone_number", None)
@@ -392,57 +458,44 @@ async def _buscar_telefone_via_aiograpi_async(username: str) -> Optional[str]:
 
 
 def buscar_telefone_via_aiograpi(username: str) -> Optional[str]:
-    """Fallback via API privada do Instagram (aiograpi) — só roda
-    se USE_AIOGRAPI_FALLBACK estiver ligado e tiver credenciais.
-    Mais confiável que a IA porque vem de um campo estruturado real,
-    não de texto interpretado."""
     if not USE_AIOGRAPI_FALLBACK:
         return None
     try:
         numero = asyncio.run(_buscar_telefone_via_aiograpi_async(username))
         if numero:
-            logger.info(f"✅ aiograpi extraiu telefone: {numero}")
+            logger.info(f"✅ aiograpi extraiu: {numero}")
         return numero
     except Exception as e:
-        logger.warning(f"⚠️ Falha ao usar aiograpi para @{username}: {e}")
+        logger.warning(f"⚠️ Falha aiograpi @{username}: {e}")
         return None
 
 
+# ==================== RESOLUÇÃO DE LINKS ====================
+
 def seguir_redirecionamentos(url: str) -> Optional[str]:
-    """Segue redirects HTTP (302/301) server-side com um client rápido,
-    sem abrir browser. Funciona para a maioria dos encurtadores.
-    Tenta múltiplas vezes com retry automático."""
-    max_retries = 3
-    for tentativa in range(max_retries):
+    for tentativa in range(3):
         try:
             with httpx.Client(headers=HEADERS_NAVEGADOR, follow_redirects=True, timeout=15) as client:
                 resp = client.get(url)
                 return str(resp.url)
         except Exception as e:
-            if tentativa < max_retries - 1:
-                # Backoff exponencial: 1s, 2s, 3s
+            if tentativa < 2:
                 time.sleep(1 * (tentativa + 1))
-                logger.info(f"Retry {tentativa + 1}/{max_retries} para {url}")
             else:
-                logger.warning(
-                    f"Falha final ao seguir redirect HTTP de {url}: {e}")
+                logger.warning(f"Falha redirect HTTP {url}: {e}")
     return None
 
 
 def seguir_redirecionamento_via_browser(url: str) -> Optional[str]:
-    """Fallback para encurtadores que redirecionam via JavaScript
-    (window.location) em vez de um redirect HTTP de verdade."""
     try:
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=False, timeout=15)
-        return page.url if hasattr(page, "url") else None
+        _, final_url = fetch_page(url, timeout=15000)
+        return final_url
     except Exception as e:
-        logger.warning(f"Falha ao seguir redirect via browser de {url}: {e}")
+        logger.warning(f"Falha redirect browser {url}: {e}")
         return None
 
 
 def resolver_link_ate_whatsapp(url_inicial: str) -> Optional[str]:
-    """Pega um link (direto ou de encurtador) e resolve até achar
-    o número de WhatsApp, se existir na cadeia de redirecionamentos."""
     if eh_link_whatsapp_direto(url_inicial):
         return extrair_numero_de_url_whatsapp(url_inicial)
 
@@ -450,7 +503,6 @@ def resolver_link_ate_whatsapp(url_inicial: str) -> Optional[str]:
     if url_final and eh_link_whatsapp_direto(url_final):
         return extrair_numero_de_url_whatsapp(url_final)
 
-    # Encurtador não redirecionou por HTTP puro -> provavelmente é JS-based
     url_final_browser = seguir_redirecionamento_via_browser(url_inicial)
     if url_final_browser and eh_link_whatsapp_direto(url_final_browser):
         return extrair_numero_de_url_whatsapp(url_final_browser)
@@ -458,139 +510,98 @@ def resolver_link_ate_whatsapp(url_inicial: str) -> Optional[str]:
     return None
 
 
-# Domínios que NUNCA valem a pena tentar resolver no fallback genérico
-# (redes sociais, navegação do próprio site, etc. — perda de tempo e requests)
-DOMINIOS_IGNORAR_NO_FALLBACK = (
-    "instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com",
-    "youtube.com", "linkedin.com", "spotify.com", "apple.com",
-)
-
-MAX_LINKS_FALLBACK = 15  # Aumentado para verificar mais links
-
-
-def extrair_numero_de_tel(href: str) -> Optional[str]:
-    """Extrai o número de um link com protocolo tel: (exemplo: tel:+5511999999999)"""
-    if not href.lower().startswith("tel:"):
-        return None
-    numero = re.sub(r"\D", "", href)
-    return numero if numero else None
-
+# ==================== BUSCAS PRINCIPAIS ====================
 
 def buscar_whatsapp_em_link_bio(url: str) -> Optional[str]:
-    """Abre uma página tipo Linktree/Beacons/Bio.link, acha o botão
-    de WhatsApp (mesmo atrás de um encurtador) e extrai o número."""
     try:
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=False, timeout=20)
+        links, texto, _ = get_page_links_and_text(url, timeout=20000)
 
-        links = page.css("a::attr(href)").getall() or []
-        textos = page.css("a::text").getall() or []
-        textos += [""] * (len(links) - len(textos))
-
-        # 1) tel: direto — não precisa nem seguir redirect
-        for href in links:
-            numero = extrair_numero_de_tel(href)
+        # 1) tel:
+        for item in links:
+            numero = extrair_numero_de_tel(item.get("href", ""))
             if numero:
                 return numero
 
-        # 2) candidatos com palavra-chave de WhatsApp no link/texto (prioridade)
-        candidatos_com_pista = [
-            href for href, texto in zip(links, textos)
-            if parece_botao_whatsapp(href, texto)
+        # 2) candidatos com palavra-chave
+        candidatos = [
+            item["href"] for item in links
+            if parece_botao_whatsapp(item.get("href", ""), item.get("text", ""))
         ]
-        candidatos_com_pista.sort(
-            key=lambda h: 0 if eh_link_whatsapp_direto(h) else 1)
+        candidatos.sort(key=lambda h: 0 if eh_link_whatsapp_direto(h) else 1)
 
-        for href in candidatos_com_pista:
+        for href in candidatos:
             numero = resolver_link_ate_whatsapp(href)
             if numero:
                 return numero
 
-        # 3) fallback: sem pista textual (botão só com ícone) — tenta resolver
-        #    os demais links externos, um a um, até achar algum que caia no WhatsApp.
-        #    Cobre qualquer encurtador (Bitly, TinyURL, Cuttly, T.LY, Rebrandly...)
-        #    sem precisar conhecer cada um deles.
-        outros_links = [
-            href for href in links
-            if href.startswith("http")
-            and href not in candidatos_com_pista
-            and not any(dominio in href for dominio in DOMINIOS_IGNORAR_NO_FALLBACK)
+        # 3) fallback genérico
+        outros = [
+            item["href"] for item in links
+            if item.get("href", "").startswith("http")
+            and item["href"] not in candidatos
+            and not any(d in item["href"] for d in DOMINIOS_IGNORAR_NO_FALLBACK)
         ][:MAX_LINKS_FALLBACK]
 
-        for href in outros_links:
+        for href in outros:
             numero = resolver_link_ate_whatsapp(href)
             if numero:
                 return numero
 
-        return None
+        # 4) texto + IA
+        telefone = extrair_telefone_de_texto(texto)
+        if telefone:
+            return telefone
+
+        return extrair_com_ia(texto, "link-in-bio")
     except Exception as e:
-        logger.warning(f"Falha ao buscar WhatsApp em link-in-bio ({url}): {e}")
+        logger.warning(f"Falha link-bio ({url}): {e}")
         return None
 
 
 def buscar_telefone_instagram(link: str) -> Optional[str]:
-    """Busca telefone/WhatsApp no perfil do Instagram com múltiplas estratégias:
-    1) Verifica metadados (og:description e description)
-    2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
-    3) Procura link-in-bio (Linktree, Beacons, Bio.link, etc.)
-    4) Procura por palavras-chave de contato
-    5) Busca em todo o texto visível da página
-    6) Fallback via API privada do Instagram (aiograpi)
-    7) Último recurso: usa IA para extrair"""
     try:
-        # MELHORIA: Extrair username limpo (sem parâmetros de URL)
         if "instagram.com" in link:
             parsed = urlparse(link)
             caminho = parsed.path.strip("/")
             username = caminho.split("/")[-1] if caminho else link.lstrip("@")
         else:
             username = link.lstrip("@")
-        
+
         url = f"https://www.instagram.com/{username}/"
+        links, texto, _ = get_page_links_and_text(url, timeout=25000)
 
-        # Fetch com timeout reduzido e network_idle=False (não travar)
-        page = StealthyFetcher.fetch(
-            url, headless=True, network_idle=False, timeout=25)
-
-        # 1) Tenta extrair de metadados (og:description + description)
-        descricao = page.css(
-            "meta[property='og:description']::attr(content)").get() or ""
-        descricao += " " + (page.css(
-            "meta[name='description']::attr(content)").get() or "")
-
-        telefone = extrair_telefone_de_texto(descricao)
+        # 1) texto / meta
+        telefone = extrair_telefone_de_texto(texto)
         if telefone:
             return telefone
 
-        # 2) Procura links diretos de WhatsApp (wa.me, whatsapp.com)
-        links_whatsapp = page.css(
-            "a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
-        for href in links_whatsapp:
-            numero = extrair_numero_de_url_whatsapp(href)
-            if numero:
-                return numero
+        # 2) links wa.me / whatsapp
+        for item in links:
+            href = item.get("href", "")
+            if "wa.me" in href or "whatsapp.com" in href:
+                numero = extrair_numero_de_url_whatsapp(href)
+                if numero:
+                    return numero
 
-        # 3) Procura link-in-bio (Linktree, Beacons, Bio.link, etc.)
-        bio_links = page.css(
-            "a[href*='linktr.ee']::attr(href), "
-            "a[href*='beacons.ai']::attr(href), "
-            "a[href*='bio.link']::attr(href), "
-            "a[href*='linkin.bio']::attr(href)").getall() or []
-
-        for bio_link in bio_links:
-            numero = buscar_whatsapp_em_link_bio(bio_link)
-            if numero:
-                return numero
-
-        # 4) Procura por links com palavras-chave de contato/WhatsApp
-        todos_os_links = page.css("a::attr(href)").getall() or []
-        textos = page.css("a::text").getall() or []
-        textos += [""] * (len(todos_os_links) - len(textos))
-
-        candidatos = [
-            href for href, texto in zip(todos_os_links, textos)
-            if parece_botao_whatsapp(href, texto) or "contato" in texto.lower() or "message" in texto.lower()
+        # 3) link-in-bio
+        bio_links = [
+            item["href"] for item in links
+            if any(d in item.get("href", "") for d in (
+                "linktr.ee", "beacons.ai", "bio.link", "linkin.bio"
+            ))
         ]
+        for bio in bio_links:
+            numero = buscar_whatsapp_em_link_bio(bio)
+            if numero:
+                return numero
 
+        # 4) candidatos com palavras-chave
+        candidatos = [
+            item["href"] for item in links
+            if parece_botao_whatsapp(item.get("href", ""), item.get("text", ""))
+            or "contato" in item.get("text", "").lower()
+            or "message" in item.get("text", "").lower()
+        ]
         for href in candidatos:
             if href.startswith("http"):
                 numero = resolver_link_ate_whatsapp(href)
@@ -601,128 +612,75 @@ def buscar_telefone_instagram(link: str) -> Optional[str]:
                 if numero:
                     return numero
 
-        # 5) Fallback: busca em todo o texto da página com filtro
-        texto_completo = page.get_all_text() if hasattr(
-            page, "get_all_text") else str(page)
+        # 5) aiograpi
+        numero = buscar_telefone_via_aiograpi(username)
+        if numero:
+            return numero
 
-        # Procura por padrões de WhatsApp no texto
-        if any(kw in texto_completo.lower() for kw in ["whatsapp", "zap", "wa.me", "msg"]):
-            telefone = extrair_telefone_de_texto(texto_completo)
-            if telefone:
-                return telefone
-
-        # 6) Fallback via API privada do Instagram (aiograpi) — mais confiável
-        #    que a IA, porque vem direto do campo estruturado do Instagram
-        numero_aiograpi = buscar_telefone_via_aiograpi(username)
-        if numero_aiograpi:
-            return numero_aiograpi
-
-        # 7) Último recurso: usar IA para extrair se disponível
-        numero_ia = extrair_com_ia(texto_completo, "Instagram")
-        if numero_ia:
-            return numero_ia
-
-        return None
+        # 6) IA
+        return extrair_com_ia(texto, "Instagram")
     except Exception as e:
-        logger.warning(f"Falha ao buscar telefone no Instagram ({link}): {e}")
+        logger.warning(f"Falha Instagram ({link}): {e}")
         return None
 
 
 def buscar_telefone_facebook(link: str) -> Optional[str]:
-    """Busca telefone/WhatsApp no perfil do Facebook:
-    1) Verifica a og:description (metadados para compartilhamento)
-    2) Procura em todo o texto visível da página
-    3) Usa IA como fallback se disponível"""
     try:
-        page = StealthyFetcher.fetch(link, headless=True, network_idle=False, timeout=20)
-        # Tenta extrair da metadescription (Open Graph para compartilhamento)
-        descricao = page.css(
-            "meta[property='og:description']::attr(content)").get() or ""
-        telefone = extrair_telefone_de_texto(descricao)
+        links, texto, _ = get_page_links_and_text(link, timeout=20000)
+
+        telefone = extrair_telefone_de_texto(texto)
         if telefone:
             return telefone
 
-        texto_completo = page.get_all_text() if hasattr(
-            page, "get_all_text") else str(page)
+        for item in links:
+            href = item.get("href", "")
+            if "wa.me" in href or "whatsapp.com" in href:
+                numero = extrair_numero_de_url_whatsapp(href)
+                if numero:
+                    return numero
+            if href.startswith("tel:"):
+                numero = extrair_numero_de_tel(href)
+                if numero:
+                    return numero
 
-        # Tenta com regex primeiro
-        numero = extrair_telefone_de_texto(texto_completo)
-        if numero:
-            return numero
-
-        # Fallback: usar IA se disponível
-        numero_ia = extrair_com_ia(texto_completo, "Facebook")
-        if numero_ia:
-            return numero_ia
-
-        return None
+        return extrair_com_ia(texto, "Facebook")
     except Exception as e:
-        logger.warning(f"Falha ao buscar telefone no Facebook ({link}): {e}")
+        logger.warning(f"Falha Facebook ({link}): {e}")
         return None
 
 
 def buscar_telefone_em_site_generico(url: str) -> Optional[str]:
-    """Busca telefone/WhatsApp em qualquer site (não só link-in-bio)"""
     try:
-        logger.info(f"🔍 Buscando telefone em site genérico: {url}")
-        
-        # Abrir a página com timeout reduzido
-        page = StealthyFetcher.fetch(
-            url, 
-            headless=True, 
-            network_idle=False,
-            timeout=20
-        )
-        
-        # 1) Procurar links tel: diretos
-        links = page.css("a[href^='tel:']::attr(href)").getall() or []
-        for href in links:
+        logger.info(f"🔍 Buscando em site genérico: {url}")
+        links, texto, _ = get_page_links_and_text(url, timeout=20000)
+
+        for item in links:
+            href = item.get("href", "")
             numero = extrair_numero_de_tel(href)
             if numero:
-                logger.info(f"✅ Telefone encontrado em link tel:: {numero}")
                 return numero
-        
-        # 2) Procurar links wa.me diretos
-        links_whatsapp = page.css("a[href*='wa.me']::attr(href), a[href*='whatsapp.com']::attr(href)").getall() or []
-        for href in links_whatsapp:
-            numero = extrair_numero_de_url_whatsapp(href)
-            if numero:
-                logger.info(f"✅ WhatsApp encontrado em link direto: {numero}")
-                return numero
-        
-        # 3) Extrair do texto completo da página (meta tags + texto visível)
-        metadados = page.css("meta::attr(content)").getall() or []
-        metadados_texto = " ".join(metadados)
-        
-        telefone = extrair_telefone_de_texto(metadados_texto)
+
+        for item in links:
+            href = item.get("href", "")
+            if "wa.me" in href or "whatsapp.com" in href:
+                numero = extrair_numero_de_url_whatsapp(href)
+                if numero:
+                    return numero
+
+        telefone = extrair_telefone_de_texto(texto)
         if telefone:
-            logger.info(f"✅ Telefone encontrado em meta tags: {telefone}")
             return telefone
-        
-        # 4) Extrair do texto visível da página
-        texto_completo = page.get_all_text() if hasattr(page, "get_all_text") else str(page)
-        
-        telefone = extrair_telefone_de_texto(texto_completo)
-        if telefone:
-            logger.info(f"✅ Telefone encontrado no texto da página: {telefone}")
-            return telefone
-        
-        # 5) Fallback com IA
-        numero_ia = extrair_com_ia(texto_completo, "site")
-        if numero_ia:
-            logger.info(f"✅ Telefone encontrado via IA: {numero_ia}")
-            return numero_ia
-        
-        logger.warning(f"⚠️ Nenhum telefone encontrado em {url}")
-        return None
+
+        return extrair_com_ia(texto, "site")
     except Exception as e:
-        logger.warning(f"Falha ao buscar telefone em site genérico ({url}): {e}")
+        logger.warning(f"Falha site genérico ({url}): {e}")
         return None
 
+
+# ==================== ENDPOINTS ====================
 
 @app.post("/extrair-telefone", response_model=ScrapeResponse)
 def extrair_telefone(req: ScrapeRequest):
-    """Endpoint principal - SEMPRE retorna resposta estruturada"""
     fontes_verificadas = []
 
     try:
@@ -772,7 +730,7 @@ def extrair_telefone(req: ScrapeRequest):
         )
 
     except Exception as e:
-        logger.error(f"❌ Erro geral no scraping: {e}")
+        logger.error(f"❌ Erro geral: {e}")
         return ScrapeResponse(
             status="erro",
             fontes_verificadas=fontes_verificadas,
@@ -783,11 +741,14 @@ def extrair_telefone(req: ScrapeRequest):
 
 @app.post("/extrair-telefone-site")
 def extrair_telefone_site(req: dict):
-    """Endpoint para extrair telefone de qualquer site (não só redes sociais)"""
     url = req.get("url")
     if not url:
-        return {"status": "erro", "mensagem": "Parâmetro 'url' é obrigatório", "telefone_encontrado": None}
-    
+        return {
+            "status": "erro",
+            "mensagem": "Parâmetro 'url' é obrigatório",
+            "telefone_encontrado": None,
+        }
+
     telefone = buscar_telefone_em_site_generico(url)
     if telefone:
         return {
@@ -795,19 +756,18 @@ def extrair_telefone_site(req: dict):
             "telefone_encontrado": telefone,
             "todos_os_numeros": [telefone],
             "fonte": "site_generico",
-            "mensagem": f"Telefone encontrado no site: {telefone}"
+            "mensagem": f"Telefone encontrado no site: {telefone}",
         }
-    
+
     return {
         "status": "sem_resultado",
         "telefone_encontrado": None,
         "todos_os_numeros": [],
         "fonte": "site_generico",
-        "mensagem": "Nenhum telefone encontrado no site"
+        "mensagem": "Nenhum telefone encontrado no site",
     }
 
 
 @app.get("/health")
 def health():
-    """Endpoint de health check para verificar se a API está rodando"""
     return {"status": "ok"}
