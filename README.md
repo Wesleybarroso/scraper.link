@@ -1,55 +1,94 @@
-# 🚀 SCRAPER.LINK
+# 🚀 SCRAPER.LINK v3
 
-API profissional para descoberta e extração de contatos comerciais a partir de perfis públicos de redes sociais e páginas web.
+<div align="center">
 
-O SCRAPER.LINK foi desenvolvido para automatizar a identificação de informações públicas de contato, como:
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Redis](https://img.shields.io/badge/Redis-Latest-red)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-Latest-orange)
+![Docker](https://img.shields.io/badge/Docker-Ready-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-* Telefones
-* Links do WhatsApp
-* Websites
-* E-mails públicos
-* Links sociais
-* Biografias comerciais
+**Plataforma profissional de mineração de leads e enriquecimento de dados comerciais**
 
-A API utiliza uma combinação de:
+Extraia telefones, WhatsApp, e-mails, websites e informações comerciais de Google Maps, Instagram, Facebook e sites utilizando IA, Playwright e processamento distribuído.
 
-* FastAPI
-* BeautifulSoup
-* Requests
-* AI Fallback
-* aiograpi
-* Extração por HTML
-* Análise de páginas Link-in-Bio
+</div>
 
 ---
 
-# 📌 Principais Recursos
+# 📌 Visão Geral
 
-✅ Extração de telefones públicos
+SCRAPER.LINK é uma plataforma SaaS desenvolvida para automatizar a descoberta e enriquecimento de contatos comerciais.
 
-✅ Extração de links do WhatsApp
+A solução permite:
 
-✅ Extração de e-mails públicos
+* Gerar leads através do Google Maps
+* Extrair telefones comerciais
+* Encontrar WhatsApps
+* Encontrar e-mails públicos
+* Descobrir websites
+* Enriquecer informações utilizando IA
+* Exportar resultados para CSV e XLSX
+* Integrar com n8n, Make e CRMs
 
-✅ Suporte para Instagram
+---
 
-✅ Suporte para Facebook
+# 🎯 Casos de Uso
 
-✅ Suporte para Linktree
+* Agências de Marketing
+* SDRs
+* Inside Sales
+* Empresas de Geração de Leads
+* Automação Comercial
+* CRM
+* Prospecção B2B
+* Inteligência Comercial
+* Franquias
+* Consultorias
 
-✅ Suporte para Beacons
+---
 
-✅ Suporte para páginas personalizadas
+# ⚡ Funcionalidades
 
-✅ API REST
+## Google Maps
 
-✅ Respostas em JSON
+* Busca por segmento
+* Busca por cidade
+* Busca por CEP
+* Busca por estado
+* Extração de telefone
+* Extração de website
+* Extração de avaliações
+* Extração de endereço
 
-✅ Docker Ready
+## Instagram
 
-✅ Deploy em VPS
+* Extração de telefone
+* Extração de e-mail
+* Extração de bio
+* Extração de links
+* Extração de WhatsApp
 
-✅ Escalável para milhares de consultas
+## Facebook
+
+* Extração de telefone
+* Extração de website
+* Extração de e-mail
+
+## Website Scanner
+
+* Busca por telefone
+* Busca por WhatsApp
+* Busca por e-mail
+* Busca por redes sociais
+
+## IA
+
+* Groq
+* OpenAI
+* Gemini
 
 ---
 
@@ -59,213 +98,284 @@ A API utiliza uma combinação de:
 Cliente
    │
    ▼
+Traefik
+   │
+   ▼
 FastAPI
    │
-   ├── Instagram Scraper
+   ├── Auth JWT
    │
-   ├── Facebook Scraper
+   ├── API Keys
    │
-   ├── Link-In-Bio Parser
+   ├── Credits System
    │
-   ├── Website Analyzer
+   ├── Google Maps Engine
    │
-   └── AI Fallback Engine
-            │
-            ▼
-      JSON Response
+   ├── Instagram Engine
+   │
+   ├── Facebook Engine
+   │
+   ├── Website Scanner
+   │
+   ├── AI Enrichment
+   │
+   └── Webhooks
+   │
+   ▼
+RabbitMQ
+   │
+   ▼
+Workers
+   │
+   ▼
+PostgreSQL
+   │
+   ▼
+Redis Cache
 ```
 
 ---
 
-# ⚙ Tecnologias
+# 🧱 Stack Tecnológica
 
-| Tecnologia     | Finalidade       |
-| -------------- | ---------------- |
-| Python 3.11+   | Backend          |
-| FastAPI        | API REST         |
-| Uvicorn        | Servidor         |
-| Requests       | Requisições HTTP |
-| BeautifulSoup4 | Parsing HTML     |
-| aiograpi       | Coleta Instagram |
-| Pydantic       | Validação        |
-| Docker         | Containerização  |
-| Docker Compose | Orquestração     |
+## Backend
+
+* Python 3.11+
+* FastAPI
+* SQLAlchemy
+* Alembic
+* Pydantic
+
+## Banco de Dados
+
+* PostgreSQL
+
+## Cache
+
+* Redis
+
+## Fila
+
+* RabbitMQ
+
+## Navegação
+
+* Playwright
+
+## IA
+
+* Groq
+* OpenAI
+* Gemini
+
+## Infraestrutura
+
+* Docker
+* Docker Compose
+* Traefik
+* Coolify
 
 ---
 
 # 📂 Estrutura do Projeto
 
 ```text
-scraper.link/
+scraper-link/
 
 ├── app/
 │
-├── main.py
+├── api/
+│   ├── routes/
+│   │
+│   ├── auth.py
+│   ├── leads.py
+│   ├── campaigns.py
+│   └── webhooks.py
 │
 ├── services/
+│   ├── google_maps.py
 │   ├── instagram.py
 │   ├── facebook.py
-│   ├── parser.py
-│   └── extractor.py
+│   ├── website.py
+│   └── ai_enrichment.py
 │
-├── utils/
-│   ├── regex.py
-│   └── helpers.py
+├── workers/
+│   ├── lead_worker.py
+│   └── enrichment_worker.py
 │
-├── requirements.txt
+├── core/
+│   ├── config.py
+│   ├── security.py
+│   ├── database.py
+│   └── cache.py
+│
+├── models/
+│   ├── user.py
+│   ├── lead.py
+│   ├── campaign.py
+│   ├── credit.py
+│   └── api_key.py
+│
+├── schemas/
+│
+├── migrations/
+│
+├── tests/
 │
 ├── Dockerfile
 │
 ├── docker-compose.yml
+│
+├── requirements.txt
 │
 └── README.md
 ```
 
 ---
 
-# 🔧 Instalação Local
+# 🔐 Autenticação
 
-## Clone o projeto
+A API utiliza JWT e API Keys.
 
-```bash
-git clone https://github.com/Wesleybarroso/scraper.link.git
+## Login
 
-cd scraper.link
+```http
+POST /api/auth/login
+```
+
+### Request
+
+```json
+{
+  "email": "usuario@email.com",
+  "password": "123456"
+}
+```
+
+### Response
+
+```json
+{
+  "access_token": "jwt_token",
+  "token_type": "bearer"
+}
 ```
 
 ---
 
-## Crie ambiente virtual
+# 🔑 API Keys
 
-Linux
-
-```bash
-python3 -m venv venv
-
-source venv/bin/activate
-```
-
-Windows
-
-```powershell
-python -m venv venv
-
-venv\Scripts\activate
-```
-
----
-
-## Instale dependências
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Execute
-
-```bash
-uvicorn main:app --reload
-```
-
-API disponível em:
-
-```text
-http://localhost:8000
-```
-
----
-
-# 📚 Documentação Automática
-
-Swagger:
-
-```text
-http://localhost:8000/docs
-```
-
-Redoc:
-
-```text
-http://localhost:8000/redoc
-```
-
----
-
-# 🐳 Docker
-
-Build
-
-```bash
-docker build -t scraper-link .
-```
-
-Run
-
-```bash
-docker run -p 8000:8000 scraper-link
-```
-
----
-
-# 🐳 Docker Compose
-
-```yaml
-version: "3.8"
-
-services:
-  scraper:
-    build: .
-    container_name: scraper-link
-
-    restart: always
-
-    ports:
-      - "8000:8000"
-```
-
-Subir:
-
-```bash
-docker compose up -d
-```
-
----
-
-# 🔐 Variáveis de Ambiente
-
-Crie um arquivo:
-
-```bash
-.env
-```
+Cada usuário possui uma chave exclusiva.
 
 Exemplo:
 
-```env
-APP_NAME=SCRAPER.LINK
-
-APP_ENV=production
-
-APP_DEBUG=false
-
-PORT=8000
-
-INSTAGRAM_USERNAME=
-
-INSTAGRAM_PASSWORD=
-
-OPENAI_API_KEY=
+```http
+X-API-KEY: sk_live_xxxxxxxxx
 ```
 
 ---
 
-# 🚀 Endpoint Principal
+# 💳 Sistema de Créditos
 
-## POST /scrape
+Cada operação consome créditos.
 
-Realiza a análise completa de um perfil ou URL.
+| Operação         | Créditos |
+| ---------------- | -------- |
+| Extrair telefone | 1        |
+| Extrair e-mail   | 1        |
+| Extrair WhatsApp | 1        |
+| Website Scan     | 2        |
+| Lead Google Maps | 5        |
+| IA Enrichment    | 3        |
+
+---
+
+# 📊 Dashboard
+
+O painel administrativo possui:
+
+* Usuários
+* Leads
+* Campanhas
+* Consumo
+* Créditos
+* API Keys
+* Logs
+* Webhooks
+
+---
+
+# 📦 Banco de Dados
+
+## users
+
+```sql
+CREATE TABLE users (
+ id UUID PRIMARY KEY,
+ name VARCHAR(255),
+ email VARCHAR(255),
+ password_hash TEXT,
+ created_at TIMESTAMP
+);
+```
+
+## campaigns
+
+```sql
+CREATE TABLE campaigns (
+ id UUID PRIMARY KEY,
+ user_id UUID,
+ name VARCHAR(255),
+ status VARCHAR(50),
+ created_at TIMESTAMP
+);
+```
+
+## leads
+
+```sql
+CREATE TABLE leads (
+ id UUID PRIMARY KEY,
+ campaign_id UUID,
+ company_name TEXT,
+ phone TEXT,
+ whatsapp TEXT,
+ email TEXT,
+ website TEXT,
+ address TEXT,
+ city TEXT,
+ state TEXT
+);
+```
+
+## api_keys
+
+```sql
+CREATE TABLE api_keys (
+ id UUID PRIMARY KEY,
+ user_id UUID,
+ api_key TEXT,
+ active BOOLEAN
+);
+```
+
+---
+
+# 🚀 Endpoints
+
+## Health Check
+
+```http
+GET /health
+```
+
+---
+
+## Extrair Telefone
+
+```http
+POST /api/extract/phone
+```
 
 ### Request
 
@@ -277,230 +387,277 @@ Realiza a análise completa de um perfil ou URL.
 
 ---
 
+## Extrair Website
+
+```http
+POST /api/extract/website
+```
+
+---
+
+## Extrair E-mail
+
+```http
+POST /api/extract/email
+```
+
+---
+
+## Gerar Leads
+
+```http
+POST /api/leads/generate
+```
+
+### Request
+
+```json
+{
+  "keyword": "dentista",
+  "city": "São Paulo",
+  "limit": 100
+}
+```
+
 ### Response
 
 ```json
 {
-  "success": true,
-  "source": "instagram",
-  "phone": "+55 91 99999-9999",
-  "email": "contato@empresa.com",
-  "website": "https://empresa.com",
-  "whatsapp": "https://wa.me/5591999999999"
+  "campaign_id": "uuid",
+  "status": "processing"
 }
 ```
 
 ---
 
-# 📱 Exemplo com cURL
+# 🔄 Filas
 
-```bash
-curl -X POST \
-"http://localhost:8000/scrape" \
--H "Content-Type: application/json" \
--d '{
-  "url":"https://instagram.com/empresa"
-}'
-```
+Todo processamento pesado é executado em background.
 
----
-
-# 🐍 Exemplo Python
-
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8000/scrape",
-    json={
-        "url":"https://instagram.com/empresa"
-    }
-)
-
-print(response.json())
-```
-
----
-
-# 🟨 Exemplo Node.js
-
-```javascript
-const axios = require("axios");
-
-async function main() {
-
-    const response = await axios.post(
-        "http://localhost:8000/scrape",
-        {
-            url:
-            "https://instagram.com/empresa"
-        }
-    );
-
-    console.log(response.data);
-}
-
-main();
-```
-
----
-
-# 📊 Possíveis Retornos
-
-## Sucesso
-
-```json
-{
-  "success": true
-}
-```
-
-## Perfil não encontrado
-
-```json
-{
-  "success": false,
-  "error": "profile_not_found"
-}
-```
-
-## URL inválida
-
-```json
-{
-  "success": false,
-  "error": "invalid_url"
-}
-```
-
-## Limite excedido
-
-```json
-{
-  "success": false,
-  "error": "rate_limit"
-}
-```
-
----
-
-# 🔍 Fluxo de Extração
+Fluxo:
 
 ```text
-URL recebida
-      │
-      ▼
-
-Identificação da plataforma
-      │
-      ▼
-
-Coleta HTML
-      │
-      ▼
-
-Extração de:
-- Telefones
-- WhatsApp
-- E-mails
-- Links
-- Bio
-      │
-      ▼
-
-Fallback IA
-      │
-      ▼
-
-Resposta JSON
+API
+ │
+ ▼
+RabbitMQ
+ │
+ ▼
+Worker
+ │
+ ▼
+PostgreSQL
 ```
 
 ---
 
-# 📈 Casos de Uso
+# 📤 Exportação
 
-* Geração de Leads
-* CRM
-* Automação Comercial
-* Enriquecimento de Dados
-* Análise de Perfis
-* Prospecção Comercial
-* Integração com n8n
-* Integração com Make
-* Integração com Zapier
-* Integração com Sistemas Próprios
+## CSV
 
----
+```http
+GET /api/export/csv/{campaign_id}
+```
 
-# 🔒 Boas Práticas
+## XLSX
 
-* Respeite limites das plataformas.
-* Utilize cache sempre que possível.
-* Implemente rate limit em produção.
-* Não utilize para coleta de dados privados.
-* Utilize apenas informações publicamente disponíveis.
+```http
+GET /api/export/xlsx/{campaign_id}
+```
 
 ---
 
-# 🛣 Roadmap
+# 🔔 Webhooks
 
-### v1
+Configure URLs para receber eventos.
 
-* [x] Instagram
-* [x] Facebook
-* [x] WhatsApp Links
-* [x] Telefones
+Eventos:
 
-### v2
+```text
+lead.created
 
-* [ ] Google Maps
-* [ ] LinkedIn
-* [ ] TikTok
-* [ ] Threads
+campaign.finished
 
-### v3
+credits.low
+
+export.finished
+```
+
+---
+
+# 🔥 Integração n8n
+
+Exemplo:
+
+```http
+POST https://seu-n8n/webhook/leads
+```
+
+Payload:
+
+```json
+{
+  "lead_id": "uuid",
+  "company_name": "Empresa X",
+  "phone": "+55 11 99999-9999"
+}
+```
+
+---
+
+# 🐳 Docker
+
+## Build
+
+```bash
+docker build -t scraper-link .
+```
+
+## Run
+
+```bash
+docker run -p 8000:8000 scraper-link
+```
+
+---
+
+# 🐳 Docker Compose
+
+```yaml
+version: "3.9"
+
+services:
+
+  api:
+    build: .
+    container_name: scraper-link-api
+
+  postgres:
+    image: postgres:16
+
+  redis:
+    image: redis:latest
+
+  rabbitmq:
+    image: rabbitmq:management
+```
+
+---
+
+# ⚙ Variáveis de Ambiente
+
+```env
+APP_NAME=SCRAPER.LINK
+
+APP_ENV=production
+
+SECRET_KEY=
+
+JWT_SECRET=
+
+POSTGRES_HOST=
+
+POSTGRES_PORT=5432
+
+POSTGRES_DB=scraperlink
+
+POSTGRES_USER=
+
+POSTGRES_PASSWORD=
+
+REDIS_HOST=redis
+
+RABBITMQ_HOST=rabbitmq
+
+OPENAI_API_KEY=
+
+GROQ_API_KEY=
+
+GEMINI_API_KEY=
+
+NOPECHA_KEY=
+```
+
+---
+
+# 🛡 Segurança
+
+* JWT Authentication
+* API Keys
+* Rate Limit
+* CORS
+* Request Validation
+* Password Hashing
+* Credit Control
+* Audit Logs
+
+---
+
+# 📈 Roadmap
+
+## v3
+
+* [x] FastAPI
+* [x] Playwright
+* [x] Google Maps
+* [x] IA
+
+## v4
 
 * [ ] Dashboard Web
-* [ ] API Keys
 * [ ] Sistema de Créditos
-* [ ] Painel Administrativo
+* [ ] Webhooks
+* [ ] API Keys
+
+## v5
+
+* [ ] Multi-Tenant
+* [ ] Billing
+* [ ] PIX
+* [ ] Stripe
+* [ ] Asaas
 
 ---
 
-# 🤝 Contribuindo
-
-1. Faça um Fork
-2. Crie uma Branch
+# 🧪 Testes
 
 ```bash
-git checkout -b feature/minha-feature
+pytest
 ```
 
-3. Commit
+---
+
+# 🚀 Deploy
+
+Compatível com:
+
+* VPS
+* Docker
+* Docker Compose
+* Coolify
+* EasyPanel
+* Portainer
+* Kubernetes
+
+---
+
+# 🤝 Contribuição
 
 ```bash
+git checkout -b feature/nova-feature
+
 git commit -m "Nova funcionalidade"
+
+git push origin feature/nova-feature
 ```
 
-4. Push
-
-```bash
-git push origin feature/minha-feature
-```
-
-5. Abra um Pull Request
+Abra um Pull Request.
 
 ---
 
 # 📄 Licença
 
-Este projeto está licenciado sob a licença MIT.
-
-Consulte:
-
-```text
-LICENSE
-```
+MIT License
 
 ---
 
@@ -508,23 +665,20 @@ LICENSE
 
 **Wesley Barroso**
 
-GitHub:
-
-https://github.com/Wesleybarroso
+GitHub: https://github.com/Wesleybarroso
 
 ---
 
 # ⭐ Apoie o Projeto
 
-Se este projeto foi útil para você:
+Se este projeto foi útil:
 
-⭐ Deixe uma estrela no repositório
-
-🍴 Faça um Fork
-
-🚀 Compartilhe com outros desenvolvedores
+* ⭐ Deixe uma estrela
+* 🍴 Faça um Fork
+* 🚀 Compartilhe
 
 ---
 
-**SCRAPER.LINK**
-Automatizando a descoberta de contatos públicos na web.
+## SCRAPER.LINK
+
+**A plataforma completa para geração de leads, enriquecimento de dados e automação comercial.**
