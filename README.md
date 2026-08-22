@@ -1,733 +1,530 @@
-# Scraper de Telefones/WhatsApp 📱
+# 🚀 SCRAPER.LINK
 
-Um web scraper automatizado que extrai números de telefone e links de WhatsApp a partir de perfis de redes sociais (Instagram, Facebook) e páginas de link-in-bio (Linktree, Beacons, Bio.link, etc.).
+API profissional para descoberta e extração de contatos comerciais a partir de perfis públicos de redes sociais e páginas web.
 
-## 🎯 Funcionalidades
+O SCRAPER.LINK foi desenvolvido para automatizar a identificação de informações públicas de contato, como:
 
-- ✅ Extrai telefones usando padrão regex para números brasileiros
-- ✅ Resolve URLs de encurtadores (bit.ly, linktr.ee, tinyurl, etc.)
-- ✅ Suporta redirecionamentos HTTP e JavaScript
-- ✅ Busca em múltiplas fontes: Instagram, Facebook e Link-in-bio
-- ✅ API REST com FastAPI
-- ✅ Detecção inteligente de botões WhatsApp
-- ✅ User-Agent real para evitar bloqueios
-- ✅ Fallback via API privada do Instagram (aiograpi) para contas comerciais
-- ✅ Fallback via IA (múltiplos provedores) como último recurso
+* Telefones
+* Links do WhatsApp
+* Websites
+* E-mails públicos
+* Links sociais
+* Biografias comerciais
 
-## 📋 Requisitos
+A API utiliza uma combinação de:
 
-- Python 3.8+
-- pip (gerenciador de pacotes Python)
+* FastAPI
+* BeautifulSoup
+* Requests
+* AI Fallback
+* aiograpi
+* Extração por HTML
+* Análise de páginas Link-in-Bio
 
-## 🚀 Instalação
+---
 
-### 1. Clonar o repositório
+# 📌 Principais Recursos
+
+✅ Extração de telefones públicos
+
+✅ Extração de links do WhatsApp
+
+✅ Extração de e-mails públicos
+
+✅ Suporte para Instagram
+
+✅ Suporte para Facebook
+
+✅ Suporte para Linktree
+
+✅ Suporte para Beacons
+
+✅ Suporte para páginas personalizadas
+
+✅ API REST
+
+✅ Respostas em JSON
+
+✅ Docker Ready
+
+✅ Deploy em VPS
+
+✅ Escalável para milhares de consultas
+
+---
+
+# 🏗 Arquitetura
+
+```text
+Cliente
+   │
+   ▼
+FastAPI
+   │
+   ├── Instagram Scraper
+   │
+   ├── Facebook Scraper
+   │
+   ├── Link-In-Bio Parser
+   │
+   ├── Website Analyzer
+   │
+   └── AI Fallback Engine
+            │
+            ▼
+      JSON Response
+```
+
+---
+
+# ⚙ Tecnologias
+
+| Tecnologia     | Finalidade       |
+| -------------- | ---------------- |
+| Python 3.11+   | Backend          |
+| FastAPI        | API REST         |
+| Uvicorn        | Servidor         |
+| Requests       | Requisições HTTP |
+| BeautifulSoup4 | Parsing HTML     |
+| aiograpi       | Coleta Instagram |
+| Pydantic       | Validação        |
+| Docker         | Containerização  |
+| Docker Compose | Orquestração     |
+
+---
+
+# 📂 Estrutura do Projeto
+
+```text
+scraper.link/
+
+├── app/
+│
+├── main.py
+│
+├── services/
+│   ├── instagram.py
+│   ├── facebook.py
+│   ├── parser.py
+│   └── extractor.py
+│
+├── utils/
+│   ├── regex.py
+│   └── helpers.py
+│
+├── requirements.txt
+│
+├── Dockerfile
+│
+├── docker-compose.yml
+│
+└── README.md
+```
+
+---
+
+# 🔧 Instalação Local
+
+## Clone o projeto
 
 ```bash
 git clone https://github.com/Wesleybarroso/scraper.link.git
+
 cd scraper.link
 ```
 
-### 2. Criar ambiente virtual (opcional, mas recomendado)
+---
+
+## Crie ambiente virtual
+
+Linux
 
 ```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/Mac
 python3 -m venv venv
+
 source venv/bin/activate
 ```
 
-### 3. Instalar dependências
+Windows
 
-```bash
-pip install -r requeriments.txt
-```
+```powershell
+python -m venv venv
 
-**Dependências incluídas:**
-- `fastapi==0.115.0` - Framework web
-- `uvicorn[standard]==0.30.6` - Servidor ASGI
-- `pydantic==2.9.2` - Validação de dados
-- `scrapling[fetchers]` - Scraping com suporte a JavaScript
-- `httpx==0.27.2` - Cliente HTTP
-- `python-dotenv` - Carregamento de variáveis de ambiente locais
-- `groq` / `openai` / `google-generativeai` - Provedores de IA (fallback)
-- `aiograpi` - API privada do Instagram (fallback)
-
-## 💻 Como Usar
-
-### Iniciar o servidor
-
-```bash
-# Windows
-uvicorn main:app --reload
-
-# Linux/Mac
-python -m uvicorn main:app --reload
-```
-
-O servidor estará disponível em: **http://localhost:8000**
-
-### Acessar a documentação interativa
-
-Uma vez que o servidor está rodando, acesse:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Endpoints da API
-
-#### 1. **Extrair Telefone** `POST /extrair-telefone`
-
-Extrai telefone/WhatsApp de uma ou mais fontes.
-
-**Requisição:**
-```json
-{
-  "instagram": "https://instagram.com/seuuser/",
-  "facebook": "https://facebook.com/seuperfil/",
-  "link_bio": "https://linktr.ee/seulink"
-}
-```
-
-**Resposta de sucesso (200):**
-```json
-{
-  "telefone_encontrado": "+5511999999999",
-  "fonte": "instagram"
-}
-```
-
-**Resposta sem resultado:**
-```json
-{
-  "telefone_encontrado": null,
-  "fonte": null
-}
-```
-
-**Parâmetros:**
-- `instagram` (opcional): URL do perfil do Instagram
-- `facebook` (opcional): URL do perfil do Facebook
-- `link_bio` (opcional): URL da página de link-in-bio (Linktree, Beacons, Bio.link, etc.)
-
-**Prioridade de busca:**
-1. Link-in-bio (se fornecido)
-2. Instagram (se fornecido)
-3. Facebook (se fornecido)
-
-#### 2. **Health Check** `GET /health`
-
-Verifica se a API está online.
-
-**Resposta:**
-```json
-{
-  "status": "ok"
-}
-```
-
-## 📚 Exemplos de Uso
-
-### Usando cURL
-
-```bash
-# Buscar no Instagram
-curl -X POST "http://localhost:8000/extrair-telefone" \
-  -H "Content-Type: application/json" \
-  -d '{"instagram": "https://instagram.com/seu_usuario/"}'
-
-# Buscar no Linktree
-curl -X POST "http://localhost:8000/extrair-telefone" \
-  -H "Content-Type: application/json" \
-  -d '{"link_bio": "https://linktr.ee/seu_link"}'
-
-# Buscar em múltiplas fontes
-curl -X POST "http://localhost:8000/extrair-telefone" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "instagram": "https://instagram.com/seu_usuario/",
-    "facebook": "https://facebook.com/seu_perfil/",
-    "link_bio": "https://linktr.ee/seu_link"
-  }'
-
-# Health check
-curl "http://localhost:8000/health"
-```
-
-### Usando Python
-
-```python
-import requests
-
-url = "http://localhost:8000/extrair-telefone"
-
-# Buscar no Instagram
-dados = {
-    "instagram": "https://instagram.com/seu_usuario/"
-}
-
-resposta = requests.post(url, json=dados)
-print(resposta.json())
-
-# Output:
-# {
-#   "telefone_encontrado": "+5511999999999",
-#   "fonte": "instagram"
-# }
-```
-
-### Usando JavaScript/Node.js
-
-```javascript
-const fetch = require('node-fetch');
-
-const url = "http://localhost:8000/extrair-telefone";
-const dados = {
-  "link_bio": "https://linktr.ee/seu_link"
-};
-
-fetch(url, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify(dados)
-})
-  .then(res => res.json())
-  .then(data => console.log(data));
-```
-
-## 🏗️ Estrutura do Projeto
-
-```
-scraper.link/
-│
-├── main.py                # Código principal do scraper
-├── requeriments.txt        # Dependências do projeto
-├── README.md              # Este arquivo
-└── .git/                  # Repositório git
-```
-
-## 🔍 Como Funciona
-
-### Estratégia de Extração
-
-O scraper utiliza uma abordagem de múltiplas camadas para encontrar telefones,
-tentando cada uma nessa ordem até achar um número:
-
-1. **Extração de padrão regex**: Busca números de telefone usando expressão regular
-2. **Links diretos**: Identifica links wa.me e whatsapp.com
-3. **Palavras-chave**: Detecta botões WhatsApp por palavras-chave ("whatsapp", "zap", "fale conosco", etc.)
-4. **Resolução de encurtadores**: Segue redirecionamentos HTTP e JavaScript
-5. **Fallback genérico**: Tenta resolver links desconhecidos
-6. **Fallback via aiograpi**: Consulta a API privada do Instagram (só Instagram, ver seção própria abaixo)
-7. **Fallback via IA**: Analisa o texto raspado com um modelo de linguagem (último recurso)
-
-### Formatos de Telefone Suportados
-
-O regex suporta números brasileiros nos seguintes formatos:
-
-- `(11) 99999-9999`
-- `11 99999-9999`
-- `11 9 9999-9999`
-- `+55 11 99999-9999`
-- `+5511999999999`
-- E variações similares
-
-## 📷 Fallback via aiograpi (API privada do Instagram)
-
-Quando nenhum dos métodos tradicionais encontra o telefone na bio, no
-link-in-bio ou no texto da página, o scraper pode consultar a **API privada
-do Instagram** (a mesma que o app oficial usa) através da biblioteca
-[`aiograpi`](https://github.com/subzeroid/aiograpi). Esse método é mais
-confiável que a IA porque lê um campo estruturado real do Instagram
-(`public_phone_number`), em vez de tentar interpretar texto solto.
-
-### Como Funciona
-
-1. Faz login numa conta de Instagram configurada via variável de ambiente
-2. Salva a sessão localmente (`/app/ig_session.json`) para reaproveitar entre
-   requisições, evitando logins repetidos
-3. Consulta o perfil-alvo (`user_info_by_username`) e lê o campo de telefone
-   público, se existir
-
-### Limitação importante
-
-Esse método só retorna algo se o perfil-alvo for uma **conta comercial** com
-telefone de contato público configurado — perfis pessoais não têm esse campo
-disponível, nem pela API oficial do Instagram.
-
-### Como Configurar
-
-No EasyPanel (ou no seu `.env` local):
-
-```
-USE_AIOGRAPI_FALLBACK=true
-IG_USERNAME=sua-conta-secundaria
-IG_PASSWORD=sua-senha
-```
-
-### ⚠️ Aviso de Segurança
-
-> **Use sempre uma conta secundária, nunca a conta principal do seu negócio.**
-> Automatizar login numa conta real tem risco de banimento ou de pedido de
-> verificação (challenge) pelo próprio Instagram. Se a conta usada aqui cair,
-> você perde o acesso a ela até resolver — trate como uma conta descartável
-> dedicada só a isso.
-
-### Desativar (se desejar)
-
-```
-USE_AIOGRAPI_FALLBACK=false
-```
-
-## 🤖 Fallback com IA - Múltiplos Provedores
-
-Para aumentar a precisão quando o método tradicional (e o aiograpi) falham, o
-scraper suporta **múltiplos provedores de IA** como último recurso!
-
-### Provedores Suportados:
-
-#### 1. **Groq** ⭐⭐⭐ (Recomendado)
-- **Custo**: Grátis
-- **Velocidade**: Muito rápido (milissegundos)
-- **Qualidade**: Excelente
-- **Modelo**: Mixtral 8x7B
-- **Link**: https://console.groq.com/
-
-#### 2. **OpenAI (ChatGPT)**
-- **Custo**: Pago (créditos iniciais grátis: $5)
-- **Velocidade**: Rápido
-- **Qualidade**: Excelente
-- **Modelos**: gpt-4-mini, gpt-3.5-turbo
-- **Link**: https://platform.openai.com/api-keys
-
-#### 3. **OpenRouter** (Agregador)
-- **Custo**: Pago (muito barato, ~$0.001 por requisição)
-- **Velocidade**: Rápido
-- **Qualidade**: Excelente (múltiplos modelos)
-- **Modelos**: Claude, GPT-4, Llama, Mistral, etc.
-- **Link**: https://openrouter.ai/
-
-#### 4. **Google Gemini**
-- **Custo**: Grátis com limite generoso
-- **Velocidade**: Rápido
-- **Qualidade**: Muito bom
-- **Modelo**: Gemini 1.5 Flash
-- **Link**: https://ai.google.dev/
-
-### Como Configurar:
-
-#### No EasyPanel:
-1. Vá para "Variables" ou "Environment"
-2. Escolha qual provedor usar e adicione as variáveis:
-
-**Opção 1: Groq (Recomendado)**
-```
-IA_PROVIDER=groq
-GROQ_API_KEY=sua-chave-groq-aqui
-USE_IA_FALLBACK=true
-```
-
-**Opção 2: OpenAI**
-```
-IA_PROVIDER=openai
-OPENAI_API_KEY=sua-chave-openai-aqui
-OPENAI_MODEL=gpt-4-mini
-USE_IA_FALLBACK=true
-```
-
-**Opção 3: OpenRouter**
-```
-IA_PROVIDER=openrouter
-OPENROUTER_API_KEY=sua-chave-openrouter-aqui
-OPENROUTER_MODEL=meta-llama/llama-2-70b-chat
-USE_IA_FALLBACK=true
-```
-
-**Opção 4: Google Gemini**
-```
-IA_PROVIDER=google
-GOOGLE_API_KEY=sua-chave-google-aqui
-GOOGLE_MODEL=gemini-1.5-flash
-USE_IA_FALLBACK=true
-```
-
-3. Redeploy (EasyPanel rebuild automaticamente)
-
-#### Localmente (arquivo .env):
-```bash
-# Copie o arquivo de exemplo
-cp .env.example .env
-
-# Edite e escolha qual provedor usar
-# Exemplo: Groq
-IA_PROVIDER=groq
-GROQ_API_KEY=sua-chave-aqui
-USE_IA_FALLBACK=true
-```
-
-### Como Funciona:
-
-1. **Tenta método tradicional** (rápido, sem custo)
-   - Regex, links diretos, palavras-chave, etc.
-
-2. **Se falhar, tenta aiograpi** (Instagram, contas comerciais)
-   - Consulta direta na API privada do Instagram
-
-3. **Se ainda falhar, usa IA** (mais caro, menos confiável)
-   - Analisa o conteúdo com compreensão de contexto
-   - Extrai o WhatsApp em qualquer formato
-
-4. **Se ainda falhar, retorna null**
-   - Nenhum resultado encontrado
-
-### Vantagens do Fallback IA:
-- ✅ **Muito mais preciso** - entende contexto
-- ✅ **Extrai em qualquer formato** - não só padrões regex
-- ✅ **Inteligente** - reconhece padrões complexos
-- ✅ **Rápido** - operação assíncrona
-- ✅ **Flexível** - suporta múltiplos provedores
-- ✅ **Escalável** - funciona com qualquer escala
-
-### Desativar (se desejar):
-```
-USE_IA_FALLBACK=false
-```
-
-## ⚠️ Notas Importantes
-
-### Limitações
-
-- ⏱️ **Timeout**: Requisições têm timeout de 10 segundos
-- 🔗 **Links**: Até 15 links são processados por página (fallback genérico)
-- 🌐 **Domínios ignorados**: Alguns domínios são ignorados para evitar requisições desnecessárias:
-  - Redes sociais: instagram.com, facebook.com, tiktok.com, twitter.com, youtube.com, etc.
-  - Outros: spotify.com, apple.com
-- 🤖 **User-Agent**: Usa User-Agent de navegador real para evitar bloqueios
-- 📷 **aiograpi**: só retorna telefone de contas comerciais com contato público configurado
-
-### Rate Limiting
-
-Se você receber muitos erros de conexão, é recomendado:
-
-1. Aguardar alguns segundos entre requisições
-2. Verificar se o site não está bloqueando bots
-3. Usar proxies em produção
-
-### Performance
-
-Para melhor performance:
-
-- Use URLs válidas e bem formadas
-- Evite solicitar páginas muito grandes
-- Considere usar um pool de requisições em produção
-
-## 🐛 Troubleshooting
-
-### Erro: "scrapling.fetchers could not be resolved"
-
-**Solução:**
-```bash
-pip install scrapling[fetchers]
-```
-
-### Erro: "Connection refused"
-
-**Solução:** Certifique-se que o servidor está rodando:
-```bash
-uvicorn main:app --reload
-```
-
-### Telefone não está sendo encontrado
-
-**Possíveis causas:**
-- O site está bloqueando bots
-- O telefone está em um formato não reconhecido
-- O conteúdo é carregado dinamicamente (JavaScript)
-- É um perfil pessoal (não comercial), então o aiograpi também não vai achar nada
-
-### Erro de login no aiograpi (challenge_required)
-
-**Solução:** o Instagram pediu verificação na conta usada. Acesse o app
-oficial com essa conta, resolva a verificação manualmente, e tente de novo.
-Se acontecer com frequência, troque para outra conta secundária.
-
-## 📝 Logging
-
-O scraper registra avisos e erros em tempo real. Para ver os logs:
-
-```bash
-# Aumentar verbosidade
-# Modificar logging.basicConfig(level=logging.INFO) 
-# para logging.basicConfig(level=logging.DEBUG) em main.py
-```
-
-## 🚢 Deploy em Produção
-
-### Opção 1: EasyPanel (Recomendado) ⭐
-
-**EasyPanel** é a forma mais fácil de fazer deploy! Ele gerencia tudo automaticamente.
-
-#### Passo a Passo:
-
-1. **Acesse o EasyPanel** (http://seu-dominio/easypanel)
-2. **Clique em "Add Service" → "Application"**
-3. **Preencha os dados:**
-   - **Nome**: `scraper-leads`
-   - **Repository**: `Wesleybarroso/scraper.link` (formato `usuario/repositorio`, sem `https://` nem `.git`)
-   - **Branch**: `main`
-   - **Método de Build**: `Dockerfile`
-   - **Port**: `8000`
-   - **Container Port**: `8000`
-
-4. **Configure as variáveis de ambiente** que quiser usar (IA e/ou aiograpi, ver seções acima)
-5. **Clique em "Deploy"**
-6. **Aguarde a conclusão** (a primeira vez demora mais, baixando o Chromium — pode levar 5-10 minutos)
-7. **Acesse via**: `https://seu-dominio.com` ou conforme configurado
-
-#### Vantagens do EasyPanel:
-- ✅ Deploy automático ao fazer push no GitHub
-- ✅ SSL/HTTPS automático
-- ✅ Gerenciamento de banco de dados
-- ✅ Monitoramento de saúde (Health Check)
-- ✅ Backups automáticos
-- ✅ Escalabilidade fácil
-
-#### Variáveis de Ambiente (opcional no EasyPanel):
-
-```
-LOG_LEVEL=INFO
-WORKERS=4
-USE_IA_FALLBACK=true
-IA_PROVIDER=groq
-GROQ_API_KEY=sua-chave
-USE_AIOGRAPI_FALLBACK=true
-IG_USERNAME=sua-conta-secundaria
-IG_PASSWORD=sua-senha
+venv\Scripts\activate
 ```
 
 ---
 
-### Opção 2: Usando Gunicorn (Produção Local)
+## Instale dependências
 
 ```bash
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 main:app
+pip install -r requirements.txt
 ```
-
-**Parâmetros:**
-- `-w 4`: 4 workers (ajuste conforme CPU)
-- `-b 0.0.0.0:8000`: Bind em todas as interfaces, porta 8000
 
 ---
 
-### Opção 3: Usando Docker Localmente
-
-#### Build e Run Simples:
+## Execute
 
 ```bash
-docker build -t scraper-leads .
-docker run -p 8000:8000 scraper-leads
+uvicorn main:app --reload
 ```
 
-#### Com Docker Compose:
+API disponível em:
 
-Crie `docker-compose.yml`:
+```text
+http://localhost:8000
+```
+
+---
+
+# 📚 Documentação Automática
+
+Swagger:
+
+```text
+http://localhost:8000/docs
+```
+
+Redoc:
+
+```text
+http://localhost:8000/redoc
+```
+
+---
+
+# 🐳 Docker
+
+Build
+
+```bash
+docker build -t scraper-link .
+```
+
+Run
+
+```bash
+docker run -p 8000:8000 scraper-link
+```
+
+---
+
+# 🐳 Docker Compose
 
 ```yaml
-version: '3.8'
+version: "3.8"
 
 services:
   scraper:
     build: .
+    container_name: scraper-link
+
+    restart: always
+
     ports:
       - "8000:8000"
-    environment:
-      - LOG_LEVEL=INFO
-    restart: unless-stopped
-    shm_size: "1gb"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 ```
 
-Execute:
+Subir:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ---
 
-### Opção 4: Nginx + Uvicorn (Servidor Dedicado)
+# 🔐 Variáveis de Ambiente
 
-Para máxima performance e segurança:
-
-**1. Instale dependências:**
+Crie um arquivo:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y nginx supervisor python3-venv
+.env
 ```
 
-**2. Crie usuário para a aplicação:**
+Exemplo:
 
-```bash
-sudo useradd -m scraper
-sudo su - scraper
-```
+```env
+APP_NAME=SCRAPER.LINK
 
-**3. Clone e configure:**
+APP_ENV=production
 
-```bash
-git clone https://github.com/Wesleybarroso/scraper.link.git
-cd scraper.link
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requeriments.txt
-```
+APP_DEBUG=false
 
-**4. Configure Supervisor** (`/etc/supervisor/conf.d/scraper.conf`):
+PORT=8000
 
-```ini
-[program:scraper-leads]
-directory=/home/scraper/scraper.link
-command=/home/scraper/scraper.link/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
-user=scraper
-autostart=true
-autorestart=true
-stderr_logfile=/var/log/scraper-leads.err.log
-stdout_logfile=/var/log/scraper-leads.out.log
-```
+INSTAGRAM_USERNAME=
 
-**5. Configure Nginx** (`/etc/nginx/sites-available/scraper`):
+INSTAGRAM_PASSWORD=
 
-```nginx
-upstream scraper {
-    server 127.0.0.1:8000;
-}
-
-server {
-    listen 80;
-    server_name seu-dominio.com;
-
-    location / {
-        proxy_pass http://scraper;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-**6. Ative e inicie:**
-
-```bash
-sudo a2ensite scraper
-sudo systemctl restart nginx
-sudo supervisorctl reread
-sudo supervisorctl update
-sudo supervisorctl start scraper-leads
+OPENAI_API_KEY=
 ```
 
 ---
 
-### Opção 5: Railway, Render ou Heroku
+# 🚀 Endpoint Principal
 
-Estes serviços suportam deploy direto do GitHub:
+## POST /scrape
 
-#### Railway:
-```bash
-railway login
-railway init
-railway link <project-id>
-railway up
-```
+Realiza a análise completa de um perfil ou URL.
 
-#### Render:
-1. Acesse [render.com](https://render.com)
-2. Connect seu GitHub
-3. Selecione o repositório
-4. Render detecta o Dockerfile automaticamente
-
-#### Heroku:
-```bash
-heroku create seu-app-name
-git push heroku main
-```
-
----
-
-### Comparação de Opções
-
-| Opção | Facilidade | Custo | Performance | Escalabilidade | Recomendado para |
-|-------|-----------|-------|-------------|-----------------|------------------|
-| **EasyPanel** ⭐ | ⭐⭐⭐⭐⭐ | Médio | Excelente | Excelente | Produção, iniciantes |
-| **Docker Local** | ⭐⭐⭐ | Baixo | Muito Bom | Bom | Desenvolvimento, testes |
-| **Gunicorn** | ⭐⭐ | Baixo | Bom | Médio | Servidor dedicado |
-| **Nginx + Uvicorn** | ⭐⭐ | Baixo | Excelente | Excelente | Produção High Performance |
-| **Railway/Render** | ⭐⭐⭐⭐ | Médio | Muito Bom | Muito Bom | Startup, prototipagem |
-| **Heroku** | ⭐⭐⭐⭐ | Alto | Bom | Bom | Prototipagem rápida |
-
-### 🎯 Recomendação
-
-**Para EasyPanel:** Use a Opção 1, é a mais fácil e você terá tudo pronto em minutos!
-
-**Para desenvolvimento local:** Use Docker Compose (Opção 3)
-
-**Para máxima performance:** Use Nginx + Uvicorn (Opção 4)
-
----
-
-## 🔌 Integração com n8n
-
-No node HTTP Request do seu workflow, aponte para
-`https://SEU-DOMINIO/extrair-telefone` com o body:
+### Request
 
 ```json
 {
-  "instagram": "{{$json.instagram}}",
-  "facebook": "{{$json.facebook}}",
-  "link_bio": "{{$json.link_bio}}"
+  "url": "https://instagram.com/empresa"
 }
 ```
 
-O campo de retorno `telefone_encontrado` já bate com o que os nodes de
-decisão seguintes ("Achou o número?") esperam.
+---
 
-> **Se o n8n e o scraper estiverem na mesma VPS/rede Docker**, prefira chamar
-> pelo endereço interno do serviço (ex: `http://scraper:8000/extrair-telefone`)
-> em vez do domínio público — evita timeouts de "hairpin NAT" (o tráfego
-> saindo e tentando voltar pro mesmo servidor).
+### Response
 
-## 📄 Licença
-
-Este projeto é fornecido como está para fins educacionais e comerciais.
-
-## 👤 Autor
-
-**Wesley Barroso**  
-GitHub: [@Wesleybarroso](https://github.com/Wesleybarroso)
-
-## 🤝 Contribuições
-
-Contribuições são bem-vindas! Sinta-se à vontade para fazer fork, melhorar e enviar pull requests.
-
-## 📞 Suporte
-
-Para dúvidas ou problemas:
-1. Verifique a documentação da API em `/docs`
-2. Revise os logs do servidor
-3. Abra uma issue no GitHub
+```json
+{
+  "success": true,
+  "source": "instagram",
+  "phone": "+55 91 99999-9999",
+  "email": "contato@empresa.com",
+  "website": "https://empresa.com",
+  "whatsapp": "https://wa.me/5591999999999"
+}
+```
 
 ---
 
-**Última atualização**: Agosto de 2026
+# 📱 Exemplo com cURL
+
+```bash
+curl -X POST \
+"http://localhost:8000/scrape" \
+-H "Content-Type: application/json" \
+-d '{
+  "url":"https://instagram.com/empresa"
+}'
+```
+
+---
+
+# 🐍 Exemplo Python
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/scrape",
+    json={
+        "url":"https://instagram.com/empresa"
+    }
+)
+
+print(response.json())
+```
+
+---
+
+# 🟨 Exemplo Node.js
+
+```javascript
+const axios = require("axios");
+
+async function main() {
+
+    const response = await axios.post(
+        "http://localhost:8000/scrape",
+        {
+            url:
+            "https://instagram.com/empresa"
+        }
+    );
+
+    console.log(response.data);
+}
+
+main();
+```
+
+---
+
+# 📊 Possíveis Retornos
+
+## Sucesso
+
+```json
+{
+  "success": true
+}
+```
+
+## Perfil não encontrado
+
+```json
+{
+  "success": false,
+  "error": "profile_not_found"
+}
+```
+
+## URL inválida
+
+```json
+{
+  "success": false,
+  "error": "invalid_url"
+}
+```
+
+## Limite excedido
+
+```json
+{
+  "success": false,
+  "error": "rate_limit"
+}
+```
+
+---
+
+# 🔍 Fluxo de Extração
+
+```text
+URL recebida
+      │
+      ▼
+
+Identificação da plataforma
+      │
+      ▼
+
+Coleta HTML
+      │
+      ▼
+
+Extração de:
+- Telefones
+- WhatsApp
+- E-mails
+- Links
+- Bio
+      │
+      ▼
+
+Fallback IA
+      │
+      ▼
+
+Resposta JSON
+```
+
+---
+
+# 📈 Casos de Uso
+
+* Geração de Leads
+* CRM
+* Automação Comercial
+* Enriquecimento de Dados
+* Análise de Perfis
+* Prospecção Comercial
+* Integração com n8n
+* Integração com Make
+* Integração com Zapier
+* Integração com Sistemas Próprios
+
+---
+
+# 🔒 Boas Práticas
+
+* Respeite limites das plataformas.
+* Utilize cache sempre que possível.
+* Implemente rate limit em produção.
+* Não utilize para coleta de dados privados.
+* Utilize apenas informações publicamente disponíveis.
+
+---
+
+# 🛣 Roadmap
+
+### v1
+
+* [x] Instagram
+* [x] Facebook
+* [x] WhatsApp Links
+* [x] Telefones
+
+### v2
+
+* [ ] Google Maps
+* [ ] LinkedIn
+* [ ] TikTok
+* [ ] Threads
+
+### v3
+
+* [ ] Dashboard Web
+* [ ] API Keys
+* [ ] Sistema de Créditos
+* [ ] Painel Administrativo
+
+---
+
+# 🤝 Contribuindo
+
+1. Faça um Fork
+2. Crie uma Branch
+
+```bash
+git checkout -b feature/minha-feature
+```
+
+3. Commit
+
+```bash
+git commit -m "Nova funcionalidade"
+```
+
+4. Push
+
+```bash
+git push origin feature/minha-feature
+```
+
+5. Abra um Pull Request
+
+---
+
+# 📄 Licença
+
+Este projeto está licenciado sob a licença MIT.
+
+Consulte:
+
+```text
+LICENSE
+```
+
+---
+
+# 👨‍💻 Autor
+
+**Wesley Barroso**
+
+GitHub:
+
+https://github.com/Wesleybarroso
+
+---
+
+# ⭐ Apoie o Projeto
+
+Se este projeto foi útil para você:
+
+⭐ Deixe uma estrela no repositório
+
+🍴 Faça um Fork
+
+🚀 Compartilhe com outros desenvolvedores
+
+---
+
+**SCRAPER.LINK**
+Automatizando a descoberta de contatos públicos na web.
